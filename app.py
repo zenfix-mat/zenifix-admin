@@ -242,6 +242,20 @@ zenifix<br>
     st.divider()
 
     # --- 4. 발송 컨트롤 ---
+    st.markdown("""
+    <style>
+    button[kind="primary"] {
+        background-color: #03C75A !important;
+        border-color: #03C75A !important;
+        color: white !important;
+    }
+    button[kind="primary"]:hover {
+        background-color: #028a3f !important;
+        border-color: #028a3f !important;
+    }
+    </style>
+    """, unsafe_allow_html=True)
+
     uploaded_file = st.file_uploader("수집 탭에서 다운로드한 '엑셀 파일'을 올려주세요.", type=["xlsx"])
     
     col_btn1, col_btn2 = st.columns(2)
@@ -289,12 +303,15 @@ zenifix<br>
                     
                     success_count = 0
                     for index, row in df.iterrows():
-                        buyer_email = row['이메일']
+                        # 👇 엑셀에서 이메일뿐만 아니라 국가명과 웹사이트도 함께 가져오도록 추가
+                        buyer_email = row.get('이메일', '')
+                        buyer_country = row.get('국가명', '미확인')
+                        buyer_website = row.get('웹사이트', '미확인')
                         
                         msg = MIMEMultipart()
                         msg['From'] = f"zenifix Team <{sender_email}>"
                         msg['To'] = buyer_email
-                        msg['Subject'] = edited_subject # 수정한 제목 장착!
+                        msg['Subject'] = edited_subject
                         msg.add_header('reply-to', sender_email)
                         
                         final_html = f"<html><body>{edited_html_body}</body></html>"
@@ -307,7 +324,16 @@ zenifix<br>
                             
                             if db_connected:
                                 try:
-                                    db_sheet.append_row([current_time, buyer_email, target_type, selected_language, "성공"])
+                                    # 👇 구글 시트에 기록할 때 국가명과 웹사이트 변수를 사이에 추가합니다!
+                                    db_sheet.append_row([
+                                        current_time, 
+                                        buyer_email, 
+                                        buyer_country,      # 추가됨
+                                        buyer_website,      # 추가됨
+                                        target_type, 
+                                        selected_language, 
+                                        "성공"
+                                    ])
                                 except Exception as e:
                                     print(f"DB 기록 실패: {e}")
                                     
