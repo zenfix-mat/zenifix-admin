@@ -24,34 +24,40 @@ st.set_page_config(page_title="zenifix Global Admin", page_icon="🚀", layout="
 st.title("🚀 zenifix Global B2B Admin Dashboard")
 
 # ==========================================
-# [DB 연동] 구글 스프레드시트 초기 설정 (+ 수신거부 탭 관리)
+# [DB 연동] 구글 스프레드시트 초기 설정 (+ 수신거부 & 예약 탭 관리)
 # ==========================================
 db_connected = False
 blacklist_emails = [] # 수신거부 리스트 보관용
 
 try:
-    # 스트림릿 Secrets에서 TOML 형식으로 저장된 열쇠를 불러옵니다.
     scopes = ["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive"]
     credentials = Credentials.from_service_account_info(st.secrets["gcp_service_account"], scopes=scopes)
     gc = gspread.authorize(credentials)
     
-    # 1. 생성하신 구글 시트의 이름 'zenifix_DB' 메인 탭(발송이력)
+    # 1. 메인 발송 이력 시트
     db_sheet = gc.open("zenifix_DB").sheet1
     db_connected = True
     
-    # 2. [추가됨] '수신거부' 탭이 있는지 확인하고 데이터 가져오기
+    # 2. '수신거부' 탭 세팅
     try:
         blacklist_sheet = gc.open("zenifix_DB").worksheet("수신거부")
         blacklist_emails = blacklist_sheet.col_values(1) 
     except:
-        # 탭이 없다면 자동으로 새로 생성
         blacklist_sheet = gc.open("zenifix_DB").add_worksheet(title="수신거부", rows="1000", cols="2")
         blacklist_sheet.update_cell(1, 1, "이메일")
         blacklist_sheet.update_cell(1, 2, "수신거부일시")
-        
+
+    # 3. [새로 추가됨] 24시간 '발송예약(Queue)' 탭 세팅
+    try:
+        queue_sheet = gc.open("zenifix_DB").worksheet("발송예약")
+    except:
+        queue_sheet = gc.open("zenifix_DB").add_worksheet(title="발송예약", rows="1000", cols="9")
+        headers = ["예약일", "이메일", "국가명", "웹사이트", "제목", "본문", "상태", "타깃유형", "등록일시"]
+        for i, h in enumerate(headers, 1):
+            queue_sheet.update_cell(1, i, h)
+            
 except Exception as e:
     st.sidebar.error(f"구글 DB 연결 실패: {e}")
-    st.sidebar.warning("발송 이력이 저장되지 않을 수 있습니다.")
 
 # ==========================================
 # [영구 템플릿] 제목과 내용을 세트로 관리
@@ -333,7 +339,14 @@ zenifix<br>
     st.divider()
 
     # 발송 컨트롤
-    uploaded_file = st.file_uploader("수집 탭에서 다운로드한 '엑셀 파일'을 올려주세요.", type=["xlsx"])
+    st.subheader("📅 발송 스케줄링 (예약 설정)")
+    
+    # 달력과 파일 업로드 창을 나란히 배치
+    col_date, col_file = st.columns(2)
+    with col_date:
+        scheduled_date = st.date_input("발송을 원하는 예약 날짜를 선택하세요", min_value=datetime.today().date())
+    with col_file:
+        uploaded_file = st.file_uploader("수집 탭에서 다운로드한 '엑셀 파일'을 올려주세요.", type=["xlsx"])
     
     col_btn1, col_btn2 = st.columns(2)
     with col_btn1:
@@ -358,74 +371,52 @@ zenifix<br>
                     st.error(f"테스트 발송 실패: {e}")
 
     with col_btn2:
-        if st.button("🚀 전체 엑셀 리스트 대량 발송 시작", type="primary", use_container_width=True):
-            if not uploaded_file or not login_email or not app_password:
-                st.error("엑셀 파일, 로그인 이메일, 앱 비밀번호를 모두 입력해 주세요!")
+        # 🚀 버튼이 예약 등록 버튼으로 바뀌었습니다!
+        if st.button("📅 지정한 날짜로 예약 발송 등록하기", type="primary", use_container_width=True):
+            if not uploaded_file:
+                st.error("엑셀 파일을 먼저 올려주세요!")
+            elif not db_connected:
+                st.error("구글 DB와 연결되지 않아 예약을 등록할 수 없습니다.")
             else:
                 df = pd.read_excel(uploaded_file)
-                st.info(f"총 {len(df)}명의 대상에게 발송을 시작합니다...")
+                st.info(f"총 {len(df)}명의 대상을 {scheduled_date} 발송 큐(Queue)에 등록합니다...")
                 progress_bar = st.progress(0)
                 status_text = st.empty()
                 
-                try:
-                    server = smtplib.SMTP('smtp.gmail.com', 587)
-                    server.starttls()
-                    server.login(login_email, app_password)
+                success_count = 0
+                skip_count = 0 # 수신거부 스킵 카운트
+                
+                for index, row in df.iterrows():
+                    buyer_email = str(row.get('이메일', '')).strip()
+                    buyer_country = str(row.get('국가명', '미확인'))
+                    buyer_website = str(row.get('웹사이트', '미확인'))
                     
-                    success_count = 0
-                    skip_count = 0 # 수신거부 스킵 카운트
-                    
-                    for index, row in df.iterrows():
-                        # 문자열 처리 및 공백 제거 (안전성 강화)
-                        buyer_email = str(row.get('이메일', '')).strip()
-                        buyer_country = str(row.get('국가명', '미확인'))
-                        buyer_website = str(row.get('웹사이트', '미확인'))
-                        
-                        # --- [중요] DB 수신거부(Blacklist) 필터링 ---
-                        if buyer_email in blacklist_emails:
-                            status_text.text(f"🚫 수신거부 대상 제외됨: {buyer_email}")
-                            skip_count += 1
-                            progress_bar.progress((index + 1) / len(df))
-                            continue
-                        
-                        msg = MIMEMultipart()
-                        msg['From'] = f"zenifix Team <{sender_email}>"
-                        msg['To'] = buyer_email
-                        msg['Subject'] = edited_subject
-                        msg.add_header('reply-to', sender_email)
-                        
-                        final_html = f"<html><body>{edited_html_body}</body></html>"
-                        msg.attach(MIMEText(final_html, 'html'))
-                        
-                        try:
-                            server.send_message(msg)
-                            success_count += 1
-                            current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                            
-                            if db_connected:
-                                try:
-                                    db_sheet.append_row([
-                                        current_time, buyer_email, buyer_country, 
-                                        buyer_website, target_type, selected_language, "성공"
-                                    ])
-                                except Exception as e:
-                                    print(f"DB 기록 실패: {e}")
-                                    
-                            status_text.text(f"✅ 발송 완료 ({buyer_country}): {buyer_email}")
-                        except:
-                            status_text.text(f"❌ 발송 실패: {buyer_email}")
-                        
+                    # --- [중요] DB 수신거부 필터링 (예약 단계에서 미리 차단!) ---
+                    if buyer_email in blacklist_emails:
+                        status_text.text(f"🚫 수신거부 대상 제외됨: {buyer_email}")
+                        skip_count += 1
                         progress_bar.progress((index + 1) / len(df))
-                        
-                        if index < len(df) - 1:
-                            status_text.text(f"⏳ 스팸 방지를 위해 {delay_seconds}초 대기 중...")
-                            time.sleep(delay_seconds)
-                            
-                    server.quit()
-                    st.success(f"🎉 총 {success_count}건 발송 완료! (수신거부로 제외된 이메일: {skip_count}명)")
+                        continue
                     
-                except Exception as e:
-                    st.error(f"🚨 이메일 로그인 실패. 오류: {e}")
+                    # 구글 시트에 넣을 준비
+                    current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                    final_html = f"<html><body>{edited_html_body}</body></html>"
+                    
+                    try:
+                        # 발송(smtplib) 대신 구글 시트 '발송예약' 탭에 정보 저장하기
+                        queue_sheet.append_row([
+                            str(scheduled_date), buyer_email, buyer_country, buyer_website, 
+                            edited_subject, final_html, "대기중", target_type, current_time
+                        ])
+                        success_count += 1
+                        status_text.text(f"✅ 예약 등록 완료 ({buyer_country}): {buyer_email}")
+                    except Exception as e:
+                        status_text.text(f"❌ DB 기록 실패: {e}")
+                    
+                    progress_bar.progress((index + 1) / len(df))
+                    time.sleep(0.5) # API 과부하를 막기 위해 아주 짧게 휴식
+                        
+                st.success(f"🎉 총 {success_count}건 예약 완료! (수신거부 제외: {skip_count}명)\n지정하신 날짜({scheduled_date})에 시스템이 자동으로 발송합니다.")
 
 
 # ==========================================
