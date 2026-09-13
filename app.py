@@ -12,6 +12,7 @@ from bs4 import BeautifulSoup
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from io import BytesIO
+from deep_translator import GoogleTranslator
 
 # --- 구글 시트(DB) 라이브러리 ---
 import gspread
@@ -78,26 +79,33 @@ if 'email_templates' not in st.session_state:
 tab1, tab2, tab3 = st.tabs(["📥 1. 이메일 수집 (Gathering)", "📧 2. 자동 발송 (Sending)", "📊 3. 데이터 대시보드 (통계)"])
 
 # ==========================================
-# [탭 1] 글로벌 이메일 수집 (SerpApi)
+# [탭 1] 글로벌 이메일 수집 (SerpApi) - 다중 국가 & 자동 번역
 # ==========================================
 with tab1:
     st.header("글로벌 이메일 자동 수집기")
     
+    # 국가별 언어 코드 매핑
+    COUNTRY_LANG_MAP = {
+        "USA": "en", "UK": "en", "Australia": "en", 
+        "Germany": "de", "Austria": "de", "France": "fr", 
+        "Japan": "ja", "Vietnam": "vi", "Thailand": "th", 
+        "Spain": "es", "UAE": "ar", "Italy": "it"
+    }
+    
     col1, col2 = st.columns(2)
     with col1:
         serp_api_key = st.text_input("SerpApi Key (필수)", type="password")
-        target_country = st.text_input("타깃 국가 (예: USA, UK, Germany)", value="USA")
+        selected_countries = st.multiselect("타깃 국가 (복수 선택 가능)", list(COUNTRY_LANG_MAP.keys()), default=["USA"])
     with col2:
-        search_keyword = st.text_input("검색 키워드", value="korean cosmetics distributor contact")
-        page_count = st.number_input("검색할 페이지 수 (1페이지당 10개 결과)", min_value=1, max_value=10, value=2)
+        search_keyword = st.text_input("검색 키워드 (영어로 입력 시 자동 번역됨)", value="korean cosmetics distributor contact")
+        page_count = st.number_input("국가당 검색할 페이지 수", min_value=1, max_value=10, value=2)
 
     if st.button("🔍 이메일 수집 시작", type="primary"):
-        if not serp_api_key:
-            st.error("SerpApi Key를 입력해 주세요!")
+        if not serp_api_key or not selected_countries:
+            st.error("SerpApi Key와 타깃 국가를 최소 1개 이상 선택해 주세요!")
         else:
-            with st.spinner("구글 검색 및 이메일 수집 중입니다... (약 1~2분 소요)"):
+            with st.spinner("다국어 번역 및 이메일 수집 중입니다... (국가가 많을수록 시간이 소요됩니다)"):
                 results_data = []
-                search_query_full = f"{search_keyword} {target_country}"
                 
                 def extract_emails(url):
                     headers = {'User-Agent': 'Mozilla/5.0'}
@@ -115,53 +123,58 @@ with tab1:
                     except:
                         return []
 
-                # 검색 루프
-                for page in range(page_count):
-                    offset = page * 10
-                    api_url = f"https://serpapi.com/search.json?engine=google&q={search_query_full}&start={offset}&api_key={serp_api_key}"
+                # 선택된 각 국가별로 반복하며 수집 진행
+                for country in selected_countries:
+                    lang_code = COUNTRY_LANG_MAP.get(country, "en")
+                    
+                    # 💡 핵심: 영어 키워드를 해당 국가 언어로 자동 번역
                     try:
-                        response = requests.get(api_url).json()
-                        if 'organic_results' in response:
-                            for item in response['organic_results']:
-                                company_name = item.get('title', '이름 없음')
-                                website_url = item.get('link', '')
-                                
-                                if website_url.endswith('.pdf'): continue
-                                
-                                emails = extract_emails(website_url)
-                                if emails:
-                                    results_data.append({
-                                        "업체명": company_name,
-                                        "국가명": target_country,
-                                        "웹사이트": website_url,
-                                        "담당자(유추)": "Cosmetics Purchasing Team",
-                                        "이메일": emails[0],
-                                        "수집상태": "대기중"
-                                    })
-                                time.sleep(1) # 차단 방지
-                    except Exception as e:
-                        st.error(f"검색 중 오류 발생: {e}")
+                        if lang_code != "en":
+                            translated_keyword = GoogleTranslator(source='auto', target=lang_code).translate(search_keyword)
+                        else:
+                            translated_keyword = search_keyword
+                    except:
+                        translated_keyword = search_keyword 
+                        
+                    search_query_full = f"{translated_keyword} {country}"
+                    st.info(f"🌍 {country} 수집 시작 (현지 검색어: {translated_keyword})")
 
-                # 수집 결과 화면 출력
+                    for page in range(page_count):
+                        offset = page * 10
+                        api_url = f"https://serpapi.com/search.json?engine=google&q={search_query_full}&start={offset}&api_key={serp_api_key}"
+                        try:
+                            response = requests.get(api_url).json()
+                            if 'organic_results' in response:
+                                for item in response['organic_results']:
+                                    company_name = item.get('title', '이름 없음')
+                                    website_url = item.get('link', '')
+                                    if website_url.endswith('.pdf'): continue
+                                    
+                                    emails = extract_emails(website_url)
+                                    if emails:
+                                        results_data.append({
+                                            "업체명": company_name, "국가명": country, "웹사이트": website_url,
+                                            "담당자(유추)": "Cosmetics Purchasing Team", "이메일": emails[0], "수집상태": "대기중"
+                                        })
+                                    time.sleep(1) 
+                        except Exception as e:
+                            st.warning(f"{country} 검색 중 오류 발생: {e}")
+
                 if results_data:
                     df = pd.DataFrame(results_data)
-                    st.success(f"🎉 총 {len(df)}건의 이메일 수집 완료!")
+                    st.success(f"🎉 총 {len(df)}건의 다국적 이메일 수집 완료!")
                     st.dataframe(df)
                     
-                    # 엑셀 다운로드 버튼
                     output = BytesIO()
                     with pd.ExcelWriter(output, engine='openpyxl') as writer:
                         df.to_excel(writer, index=False)
-                    excel_data = output.getvalue()
-                    
                     st.download_button(
-                        label="📊 엑셀 파일 다운로드",
-                        data=excel_data,
-                        file_name=f"Zenifix_Buyers_{target_country}.xlsx",
+                        label="📊 엑셀 파일 다운로드", data=output.getvalue(),
+                        file_name=f"Zenifix_Global_Buyers_{datetime.now().strftime('%Y%m%d')}.xlsx",
                         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
                     )
                 else:
-                    st.warning("수집된 데이터가 없습니다. 키워드를 변경해 보세요.")
+                    st.warning("수집된 데이터가 없습니다. 키워드나 국가를 변경해 보세요.")
 
 
 # ==========================================
