@@ -41,7 +41,7 @@ except Exception as e:
 tab1, tab2 = st.tabs(["📥 1. 이메일 수집 (Gathering)", "📧 2. 콜드 메일 자동 발송 (Sending)"])
 
 # ==========================================
-# [탭 1] 바이어 이메일 수집 (SerpApi)
+# [탭 1] 글로벌 이메일 수집 (SerpApi)
 # ==========================================
 with tab1:
     st.header("글로벌 이메일 자동 수집기")
@@ -54,7 +54,7 @@ with tab1:
         search_keyword = st.text_input("검색 키워드", value="korean cosmetics distributor contact")
         page_count = st.number_input("검색할 페이지 수 (1페이지당 10개 결과)", min_value=1, max_value=10, value=2)
 
-    if st.button("🔍 바이어 수집 시작", type="primary"):
+    if st.button("🔍 이메일 수집 시작", type="primary"):
         if not serp_api_key:
             st.error("SerpApi Key를 입력해 주세요!")
         else:
