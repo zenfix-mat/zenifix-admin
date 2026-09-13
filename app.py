@@ -13,7 +13,7 @@ from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from io import BytesIO
 
-# --- 새롭게 추가된 구글 시트(DB) 라이브러리 ---
+# --- 구글 시트(DB) 라이브러리 ---
 import gspread
 from google.oauth2.service_account import Credentials
 from datetime import datetime
@@ -23,18 +23,31 @@ st.set_page_config(page_title="zenifix Global Admin", page_icon="🚀", layout="
 st.title("🚀 zenifix Global B2B Admin Dashboard")
 
 # ==========================================
-# [DB 연동] 구글 스프레드시트 초기 설정
+# [DB 연동] 구글 스프레드시트 초기 설정 (+ 수신거부 탭 관리)
 # ==========================================
 db_connected = False
+blacklist_emails = [] # 수신거부 리스트 보관용
+
 try:
     # 스트림릿 Secrets에서 TOML 형식으로 저장된 열쇠를 불러옵니다.
     scopes = ["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive"]
     credentials = Credentials.from_service_account_info(st.secrets["gcp_service_account"], scopes=scopes)
     gc = gspread.authorize(credentials)
     
-    # 생성하신 구글 시트의 이름 'zenifix_DB'를 열어 첫 번째 시트를 준비합니다.
+    # 1. 생성하신 구글 시트의 이름 'zenifix_DB' 메인 탭(발송이력)
     db_sheet = gc.open("zenifix_DB").sheet1
     db_connected = True
+    
+    # 2. [추가됨] '수신거부' 탭이 있는지 확인하고 데이터 가져오기
+    try:
+        blacklist_sheet = gc.open("zenifix_DB").worksheet("수신거부")
+        blacklist_emails = blacklist_sheet.col_values(1) 
+    except:
+        # 탭이 없다면 자동으로 새로 생성
+        blacklist_sheet = gc.open("zenifix_DB").add_worksheet(title="수신거부", rows="1000", cols="2")
+        blacklist_sheet.update_cell(1, 1, "이메일")
+        blacklist_sheet.update_cell(1, 2, "수신거부일시")
+        
 except Exception as e:
     st.sidebar.error(f"구글 DB 연결 실패: {e}")
     st.sidebar.warning("발송 이력이 저장되지 않을 수 있습니다.")
@@ -152,25 +165,13 @@ with tab1:
 
 
 # ==========================================
-# [탭 2] 글로벌 이메일 자동 발송기 (수신거부 자동화 탑재)
+# [탭 2] 글로벌 이메일 자동 발송기 (수신거부 연동 완료)
 # ==========================================
 with tab2:
     st.header("글로벌 이메일 자동 발송기")
     
-    # --- [추가됨] 수신거부(Blacklist) DB 시트 준비 ---
-    blacklist_emails = []
     if db_connected:
-        try:
-            # '수신거부'라는 이름의 탭(시트)이 있는지 찾고 데이터 가져오기
-            blacklist_sheet = gc.open("zenifix_DB").worksheet("수신거부")
-            blacklist_emails = blacklist_sheet.col_values(1) # 1열(A열) 이메일 목록
-            st.success("✅ 구글 스프레드시트(zenifix_DB) 연동 완료! 발송 이력 및 수신거부 목록이 자동 연동됩니다.")
-        except:
-            # 탭이 없으면 자동으로 '수신거부' 탭을 새로 생성
-            blacklist_sheet = gc.open("zenifix_DB").add_worksheet(title="수신거부", rows="1000", cols="2")
-            blacklist_sheet.update_cell(1, 1, "이메일")
-            blacklist_sheet.update_cell(1, 2, "등록일시")
-            st.success("✅ 구글 시트에 [수신거부] 탭이 새로 생성되었습니다.")
+        st.success("✅ 구글 스프레드시트(zenifix_DB) 연동 완료! 발송 이력 및 수신거부 목록이 자동 연동됩니다.")
 
     # 버튼 디자인 CSS
     st.markdown("""
@@ -222,8 +223,8 @@ with tab2:
                                 msg = email.message_from_bytes(response_part[1])
                                 from_header = msg.get("From")
                                 # 보낸 사람 주소에서 정확한 이메일만 추출
-                                email_match = re.search(r'<(.+?)>', from_header)
-                                sender = email_match.group(1) if email_match else from_header
+                                email_match = re.search(r'<(.+?)>', str(from_header))
+                                sender = email_match.group(1) if email_match else str(from_header)
                                 
                                 # 구글 시트에 없는 이메일이면 새롭게 추가!
                                 if sender not in blacklist_emails and "mailer-daemon" not in sender.lower():
@@ -346,11 +347,12 @@ zenifix<br>
                     skip_count = 0 # 수신거부 스킵 카운트
                     
                     for index, row in df.iterrows():
-                        buyer_email = row.get('이메일', '').strip()
-                        buyer_country = row.get('국가명', '미확인')
-                        buyer_website = row.get('웹사이트', '미확인')
+                        # 문자열 처리 및 공백 제거 (안전성 강화)
+                        buyer_email = str(row.get('이메일', '')).strip()
+                        buyer_country = str(row.get('국가명', '미확인'))
+                        buyer_website = str(row.get('웹사이트', '미확인'))
                         
-                        # --- [중요] DB 중복 및 수신거부 필터링 ---
+                        # --- [중요] DB 수신거부(Blacklist) 필터링 ---
                         if buyer_email in blacklist_emails:
                             status_text.text(f"🚫 수신거부 대상 제외됨: {buyer_email}")
                             skip_count += 1
