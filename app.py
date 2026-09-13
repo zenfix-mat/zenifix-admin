@@ -441,7 +441,7 @@ zenifix<br>
                         status_text.text(f"❌ DB 기록 실패: {e}")
                     
                     progress_bar.progress((index + 1) / len(df))
-                    time.sleep(0.5) # API 과부하를 막기 위해 아주 짧게 휴식
+                    time.sleep(1.5) # API 과부하를 막기 위해 아주 짧게 휴식
                         
                 st.success(f"🎉 총 {success_count}건 예약 완료! (수신거부 제외: {skip_count}명)\n지정하신 날짜({scheduled_date})에 시스템이 자동으로 발송합니다.")
 
