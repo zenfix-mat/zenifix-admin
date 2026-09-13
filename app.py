@@ -127,139 +127,192 @@ with tab1:
 
 
 # ==========================================
-# [탭 2] 콜드 메일 자동 발송 (SMTP & 구글 시트 DB 자동 기록)
+# [탭 2] 글로벌 이메일 자동 발송기 (템플릿 추가/미리보기/수정 완비)
 # ==========================================
 with tab2:
-    st.header("글로벌 바이어 이메일 자동 발송기")
+    st.header("글로벌 이메일 자동 발송기") # 1. 제목 수정 완료
     
     # DB 연결 상태 상단 표시
     if db_connected:
         st.success("✅ 구글 스프레드시트(zenifix_DB) 연동 완료! 발송 이력이 자동 기록됩니다.")
     
-    email_templates = {
-        "바이어 (유통/입점)": {
-            "English": """<p>Dear Cosmetics Purchasing Team,</p>
-                <p>I hope this email finds you well.</p>
-                <p>I am writing from zenifix, a premium K-Beauty skincare brand based in Seoul. We would like to politely request your team's review of zenifix products for a potential retail partnership in your market.</p>
-                <p>We offer 14 core SKUs across two highly effective collections—our Noni Line (7 SKUs) and Ginkgo Line (7 SKUs). What truly sets zenifix apart is our exceptional ingredient concentration. Our formulations feature natural Noni and Ginkgo extracts <strong>ranging from 21% to 58% (210,000 ppm – 580,000 ppm)</strong> depending on the SKU. We differentiate our products through this uncompromising raw material content rather than generic marketing claims.</p>""",
-            "Japanese": """<p>化粧品購買担当チームの皆様へ</p>
-                <p>ソウルを拠点とするプレミアムK-Beautyブランド、zenifixと申します。貴社でのリテールパートナーシップの可能性について、当社の製品をご検討いただきたくご連絡いたしました。</p>""",
-            "Thai": """<p>เรียน ทีมงานจัดซื้อเครื่องสำอาง</p>
-                <p>ฉันเขียนจดหมายจาก zenifix แบรนด์สกินแคร์ระดับพรีเมียมจากโซล...</p>"""
-        },
-        "마케팅 에이전시 (협업)": {
-            "English": "<p>Dear Beauty Marketing Team,</p><p>We are looking for a marketing partner...</p>",
-            "Japanese": "<p>ビューティーマーケティングチームの皆様へ...</p>"
-        },
-        "오프라인 매장 (로컬 숍)": {
-            "English": "<p>Dear Store Manager,</p><p>Would you be interested in displaying zenifix...</p>"
+    # --- 1. 세션 상태(Session State)로 템플릿 유연하게 관리 (추가 기능) ---
+    if 'email_templates' not in st.session_state:
+        st.session_state.email_templates = {
+            "바이어 (유통/입점)": {
+                "English": """<p>Dear Cosmetics Purchasing Team,</p>
+<p>I hope this email finds you well.</p>
+<p>I am writing from zenifix, a premium K-Beauty skincare brand based in Seoul. We would like to politely request your team's review of zenifix products for a potential retail partnership in your market.</p>
+<p>We offer 14 core SKUs across two highly effective collections—our Noni Line (7 SKUs) and Ginkgo Line (7 SKUs). What truly sets zenifix apart is our exceptional ingredient concentration. Our formulations feature natural Noni and Ginkgo extracts <strong>ranging from 21% to 58% (210,000 ppm – 580,000 ppm)</strong> depending on the SKU. We differentiate our products through this uncompromising raw material content rather than generic marketing claims.</p>"""
+            },
+            "마케팅 에이전시 (협업)": {
+                "English": "<p>Dear Beauty Marketing Team,</p>\n<p>We are looking for a marketing partner...</p>"
+            }
         }
-    }
 
+    # 계정 정보 입력
     col1, col2 = st.columns(2)
     with col1:
         login_email = st.text_input("개인 로그인 이메일 (예: zeni@wellsfnd.com)")
         app_password = st.text_input("16자리 앱 비밀번호", type="password")
-        
     with col2:
         sender_email = st.text_input("발송자 이메일 (From: 공통메일)", value="zenifix@wellsfnd.com")
     
     st.divider()
     
+    # --- 2. 템플릿 선택 및 자유 추가 UI ---
     st.subheader("🎯 템플릿 및 발송 옵션 설정")
+    
+    # 타깃/언어 추가 확장 패널
+    with st.expander("➕ 새로운 타깃 그룹 및 언어 템플릿 추가하기"):
+        st.info("자주 쓰는 새로운 대상(예: 인플루언서, 박람회 만난 바이어)과 언어를 자유롭게 추가해 보세요.")
+        new_target = st.text_input("새로운 타깃 그룹 이름 (예: VIP 바이어)")
+        new_lang = st.text_input("새로운 발송 언어 (예: Spanish, French)")
+        if st.button("템플릿 목록에 추가"):
+            if new_target and new_lang:
+                if new_target not in st.session_state.email_templates:
+                    st.session_state.email_templates[new_target] = {}
+                # 빈 템플릿 생성
+                st.session_state.email_templates[new_target][new_lang] = f"<p>Dear {new_target} Team,</p>\n<p>내용을 입력하세요.</p>"
+                st.success(f"'{new_target}' - '{new_lang}' 항목이 성공적으로 추가되었습니다!")
+                st.rerun()
+
+    # 드롭다운 선택
     col3, col4 = st.columns(2)
     with col3:
-        target_type = st.selectbox("1. 타깃 그룹을 선택하세요", list(email_templates.keys()))
+        target_type = st.selectbox("1. 타깃 그룹을 선택하세요", list(st.session_state.email_templates.keys()))
     with col4:
-        available_languages = list(email_templates[target_type].keys())
+        available_languages = list(st.session_state.email_templates[target_type].keys())
         selected_language = st.selectbox("2. 발송 언어를 선택하세요", available_languages)
 
+    # 이미지 첨부 옵션
     use_image = st.radio("3. 본문 이미지 포함 여부", ["이미지 포함 (추천)", "텍스트만 발송 (이미지 없이)"], horizontal=True)
     img_url = ""
     if use_image == "이미지 포함 (추천)":
         img_url = st.text_input("이미지 URL 주소를 입력하세요", value="https://zenifix.net/img/zenifix_BrandDeck_main.png")
-        
+    
+    # 발송 간격 조절 슬라이더 (추가 제안 기능)
+    delay_seconds = st.slider("4. 메일 발송 간격 조절 (스팸 방지용 대기 시간)", min_value=10, max_value=300, value=180, step=10, help="너무 짧게 설정하면 스팸 처리될 확률이 높아집니다. 기본 180초를 권장합니다.")
+
+    st.divider()
+
+    # --- 3. 이메일 미리보기 및 자유 편집기 ---
+    st.subheader("📝 이메일 미리보기 및 직접 편집")
+    st.markdown("아래 편집창에서 이메일 내용을 자유롭게 썼다 지웠다 수정해 보세요. **아래 미리보기 화면에서 실시간으로 확인**할 수 있습니다.")
+    
+    # 템플릿 기본 내용 불러오기 및 조립
+    base_content = st.session_state.email_templates[target_type][selected_language]
+    image_content = f'\n<p><img src="{img_url}" alt="zenifix Brand Overview" style="max-width: 800px; width: 100%; height: auto;"></p>\n' if (use_image == "이미지 포함 (추천)" and img_url) else ""
+    footer_content = f"""
+<p>To explore our complete Brand Deck, including full product details, current global sales channels, and our active SNS presence, please visit our official website:<br>
+👉 <strong>Official Brand Deck: <a href="https://zenifix.net">https://zenifix.net</a></strong></p>
+<p>If your team finds our brand suitable for your market after the initial review, please reply to this email. We would be happy to discuss further possibilities and details.</p>
+<p>Thank you for your time and consideration.</p>
+<p>Best regards,<br>
+Global Partnership Team<br>
+zenifix<br>
+{sender_email}</p>
+<p><small><i>*If you do not wish to receive further emails, please reply with 'Unsubscribe'.</i></small></p>
+"""
+    # 최초 로딩 시 편집창에 들어갈 기본 조립된 텍스트
+    initial_html = base_content + image_content + footer_content
+    
+    # 사용자가 직접 마음대로 수정할 수 있는 편집창
+    edited_html_body = st.text_area("🔧 이메일 본문 (HTML 태그 및 텍스트 자유 수정)", value=initial_html, height=300)
+
+    # 수정한 내용이 실시간으로 렌더링되는 미리보기 창
+    st.markdown("##### 👁️ 실제 바이어가 받아볼 이메일 미리보기")
+    with st.container(border=True):
+        components.html(edited_html_body, height=400, scrolling=True)
+
+    st.divider()
+
+    # --- 4. 엑셀 업로드 및 발송 컨트롤 ---
     uploaded_file = st.file_uploader("수집 탭에서 다운로드한 '엑셀 파일'을 올려주세요.", type=["xlsx"])
     
-    if st.button("🚀 이메일 발송 시작", type="primary"):
-        if not uploaded_file or not login_email or not app_password:
-            st.error("엑셀 파일, 로그인 이메일, 앱 비밀번호를 모두 입력해 주세요!")
-        else:
-            df = pd.read_excel(uploaded_file)
-            st.info(f"총 {len(df)}명의 바이어에게 발송을 시작합니다...")
-            progress_bar = st.progress(0)
-            status_text = st.empty()
-            
-            try:
-                server = smtplib.SMTP('smtp.gmail.com', 587)
-                server.starttls()
-                server.login(login_email, app_password)
-                
-                success_count = 0
-                for index, row in df.iterrows():
-                    buyer_email = row['이메일']
+    col_btn1, col_btn2 = st.columns(2)
+    
+    # [추가 제안 기능] 나에게 1통 테스트 발송
+    with col_btn1:
+        if st.button("🧪 내 메일로 테스트 1건 발송해 보기", use_container_width=True):
+            if not login_email or not app_password:
+                st.warning("로그인 이메일과 앱 비밀번호를 먼저 입력해 주세요.")
+            else:
+                try:
+                    server = smtplib.SMTP('smtp.gmail.com', 587)
+                    server.starttls()
+                    server.login(login_email, app_password)
                     
                     msg = MIMEMultipart()
                     msg['From'] = f"zenifix Team <{sender_email}>"
-                    msg['To'] = buyer_email
-                    msg['Subject'] = "[Partnership Proposal] Premium K-Beauty: 580,000ppm High-Concentration Skincare by zenifix"
-                    msg.add_header('reply-to', sender_email)
+                    msg['To'] = login_email  # 본인에게 전송
+                    msg['Subject'] = "[TEST] Premium K-Beauty: 580,000ppm High-Concentration Skincare by zenifix"
                     
-                    main_content = email_templates[target_type][selected_language]
+                    # 최종 수정된 HTML을 메일에 장착
+                    final_html = f"<html><body>{edited_html_body}</body></html>"
+                    msg.attach(MIMEText(final_html, 'html'))
                     
-                    image_content = ""
-                    if use_image == "이미지 포함 (추천)" and img_url:
-                        image_content = f"""
-                        <p>We have included a brief image below for your reference regarding the zenifix brand:</p>
-                        <p><img src="{img_url}" alt="zenifix Brand Overview" style="max-width: 800px; width: 100%; height: auto;"></p>
-                        """
-                    
-                    footer_content = f"""
-                    <p>To explore our complete Brand Deck, including full product details, current global sales channels, and our active SNS presence, please visit our official website:<br>
-                    👉 <strong>Official Brand Deck: <a href="https://zenifix.net">https://zenifix.net</a></strong></p>
-                    
-                    <p>If your team finds our brand suitable for your market after the initial review, please reply to this email. We would be happy to discuss further possibilities and details.</p>
-                    
-                    <p>Thank you for your time and consideration.</p>
-                    
-                    <p>Best regards,<br>
-                    Global Partnership Team<br>
-                    zenifix<br>
-                    {sender_email}</p>
-                    
-                    <p><small><i>*If you do not wish to receive further emails, please reply with 'Unsubscribe'.</i></small></p>
-                    """
-                    
-                    html_body = f"<html><body>{main_content}{image_content}{footer_content}</body></html>"
-                    msg.attach(MIMEText(html_body, 'html'))
-                    
-                    try:
-                        # 1) 이메일 실제 발송
-                        server.send_message(msg)
-                        success_count += 1
-                        current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                        
-                        # 2) DB(구글 시트)에 발송 이력 기록 추가
-                        if db_connected:
-                            try:
-                                # [날짜, 수신자 이메일, 타깃유형, 발송언어, 결과] 형태로 엑셀 맨 아래줄에 추가
-                                db_sheet.append_row([current_time, buyer_email, target_type, selected_language, "성공"])
-                            except Exception as e:
-                                print(f"DB 기록 실패: {e}")
-                                
-                        status_text.text(f"✅ 발송 성공 (DB 저장완료): {buyer_email}")
-                    except:
-                        status_text.text(f"❌ 발송 실패: {buyer_email}")
-                    
-                    progress_bar.progress((index + 1) / len(df))
-                    
-                    # 스팸 방지 대기 (마지막 메일이 아닐 경우)
-                    if index < len(df) - 1:
-                        status_text.text("⏳ 스팸 방지를 위해 3분(180초) 대기 중...")
-                        time.sleep(180)
-                        
-                server.quit()
-                st.success(f"🎉 총 {success_count}건의 메일 발송 및 구글 DB 저장이 안전하게 완료되었습니다!")
+                    server.send_message(msg)
+                    server.quit()
+                    st.toast("✅ 테스트 메일이 성공적으로 발송되었습니다! 메일함을 확인해 보세요.")
+                except Exception as e:
+                    st.error(f"테스트 발송 실패: {e}")
+
+    # 대량 실전 발송
+    with col_btn2:
+        if st.button("🚀 전체 엑셀 리스트 대량 발송 시작", type="primary", use_container_width=True):
+            if not uploaded_file or not login_email or not app_password:
+                st.error("엑셀 파일, 로그인 이메일, 앱 비밀번호를 모두 입력해 주세요!")
+            else:
+                df = pd.read_excel(uploaded_file)
+                st.info(f"총 {len(df)}명의 바이어에게 발송을 시작합니다...")
+                progress_bar = st.progress(0)
+                status_text = st.empty()
                 
-            except Exception as e:
-                st.error(f"🚨 이메일 로그인 실패. 앱 비밀번호를 다시 확인해 주세요. 오류: {e}")
+                try:
+                    server = smtplib.SMTP('smtp.gmail.com', 587)
+                    server.starttls()
+                    server.login(login_email, app_password)
+                    
+                    success_count = 0
+                    for index, row in df.iterrows():
+                        buyer_email = row['이메일']
+                        
+                        msg = MIMEMultipart()
+                        msg['From'] = f"zenifix Team <{sender_email}>"
+                        msg['To'] = buyer_email
+                        msg['Subject'] = "[Partnership Proposal] Premium K-Beauty: 580,000ppm High-Concentration Skincare by zenifix"
+                        msg.add_header('reply-to', sender_email)
+                        
+                        # 최종 수정된 HTML을 모든 메일에 장착
+                        final_html = f"<html><body>{edited_html_body}</body></html>"
+                        msg.attach(MIMEText(final_html, 'html'))
+                        
+                        try:
+                            server.send_message(msg)
+                            success_count += 1
+                            current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                            
+                            # DB(구글 시트) 이력 기록
+                            if db_connected:
+                                try:
+                                    db_sheet.append_row([current_time, buyer_email, target_type, selected_language, "성공"])
+                                except Exception as e:
+                                    print(f"DB 기록 실패: {e}")
+                                    
+                            status_text.text(f"✅ 발송 성공 (DB 저장완료): {buyer_email}")
+                        except:
+                            status_text.text(f"❌ 발송 실패: {buyer_email}")
+                        
+                        progress_bar.progress((index + 1) / len(df))
+                        
+                        # 슬라이더에서 설정한 시간만큼 대기 (마지막 메일 제외)
+                        if index < len(df) - 1:
+                            status_text.text(f"⏳ 스팸 방지를 위해 {delay_seconds}초 대기 중...")
+                            time.sleep(delay_seconds)
+                            
+                    server.quit()
+                    st.success(f"🎉 총 {success_count}건의 메일 발송 및 구글 DB 저장이 안전하게 완료되었습니다!")
+                    
+                except Exception as e:
+                    st.error(f"🚨 이메일 로그인 실패. 앱 비밀번호를 다시 확인해 주세요. 오류: {e}")
