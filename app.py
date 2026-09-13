@@ -101,7 +101,8 @@ with tab1:
         "Ireland": "en", "New Zealand": "en", "India": "en", "Philippines": "en",
         "Germany": "de", "Austria": "de", "France": "fr", 
         "Japan": "ja", "Vietnam": "vi", "Thailand": "th", 
-        "Spain": "es", "Mexico": "es", "UAE": "ar", "Italy": "it"
+        "Spain": "es", "Mexico": "es", "UAE": "ar", "Italy": "it",
+        "Korea": "ko"
     }
     
     col1, col2 = st.columns(2)
@@ -111,7 +112,7 @@ with tab1:
         selected_countries = [c.strip() for c in countries_input.split(",") if c.strip()]
         
     with col2:
-        search_keyword = st.text_input("검색 키워드 (영문+현지어 듀얼 검색됨)", value="korean cosmetics distributor contact")
+        search_keyword = st.text_input("검색 키워드 (영문+현지어 듀얼 검색됨)", value="K-beauty cosmetics distributor contact")
         page_count = st.number_input("검색어당 페이지 수", min_value=1, max_value=10, value=2)
 
     if st.button("🔍 이메일 수집 시작", type="primary"):
