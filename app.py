@@ -413,14 +413,26 @@ zenifix<br>
                 success_count = 0
                 skip_count = 0 # 수신거부 스킵 카운트
                 
+                try:
+                    existing_queue_emails = queue_sheet.col_values(2) # 2열(이메일) 데이터 전체
+                except:
+                    existing_queue_emails = []
+
                 for index, row in df.iterrows():
                     buyer_email = str(row.get('이메일', '')).strip()
                     buyer_country = str(row.get('국가명', '미확인'))
                     buyer_website = str(row.get('웹사이트', '미확인'))
                     
-                    # --- [중요] DB 수신거부 필터링 (예약 단계에서 미리 차단!) ---
+                    # --- [중요] DB 수신거부 필터링 ---
                     if buyer_email in blacklist_emails:
                         status_text.text(f"🚫 수신거부 대상 제외됨: {buyer_email}")
+                        skip_count += 1
+                        progress_bar.progress((index + 1) / len(df))
+                        continue
+                        
+                    # 👇 [새로 추가된 로직] 이미 발송예약 탭에 들어있는 이메일이면 건너뜁니다!
+                    if buyer_email in existing_queue_emails:
+                        status_text.text(f"⚠️ 이미 예약된 바이어 제외됨: {buyer_email}")
                         skip_count += 1
                         progress_bar.progress((index + 1) / len(df))
                         continue
