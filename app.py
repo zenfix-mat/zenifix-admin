@@ -38,7 +38,7 @@ except Exception as e:
 
 
 # 탭(Tab)으로 수집 화면과 발송 화면 분리
-tab1, tab2 = st.tabs(["📥 1. 바이어 이메일 수집 (Gathering)", "📧 2. 콜드 메일 자동 발송 (Sending)"])
+tab1, tab2 = st.tabs(["📥 1. 이메일 수집 (Gathering)", "📧 2. 콜드 메일 자동 발송 (Sending)"])
 
 # ==========================================
 # [탭 1] 바이어 이메일 수집 (SerpApi)
