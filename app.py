@@ -44,7 +44,7 @@ tab1, tab2 = st.tabs(["📥 1. 바이어 이메일 수집 (Gathering)", "📧 2.
 # [탭 1] 바이어 이메일 수집 (SerpApi)
 # ==========================================
 with tab1:
-    st.header("글로벌 바이어 이메일 자동 수집기")
+    st.header("글로벌 이메일 자동 수집기")
     
     col1, col2 = st.columns(2)
     with col1:
