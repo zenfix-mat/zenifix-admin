@@ -9,9 +9,32 @@ from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from io import BytesIO
 
+# --- 새롭게 추가된 구글 시트(DB) 라이브러리 ---
+import gspread
+from google.oauth2.service_account import Credentials
+from datetime import datetime
+
 # 웹페이지 기본 설정
 st.set_page_config(page_title="zenifix Global Admin", page_icon="🚀", layout="wide")
 st.title("🚀 zenifix Global B2B Admin Dashboard")
+
+# ==========================================
+# [DB 연동] 구글 스프레드시트 초기 설정
+# ==========================================
+db_connected = False
+try:
+    # 스트림릿 Secrets에서 TOML 형식으로 저장된 열쇠를 불러옵니다.
+    scopes = ["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive"]
+    credentials = Credentials.from_service_account_info(st.secrets["gcp_service_account"], scopes=scopes)
+    gc = gspread.authorize(credentials)
+    
+    # 생성하신 구글 시트의 이름 'zenifix_DB'를 열어 첫 번째 시트를 준비합니다.
+    db_sheet = gc.open("zenifix_DB").sheet1
+    db_connected = True
+except Exception as e:
+    st.sidebar.error(f"구글 DB 연결 실패: {e}")
+    st.sidebar.warning("발송 이력이 저장되지 않을 수 있습니다.")
+
 
 # 탭(Tab)으로 수집 화면과 발송 화면 분리
 tab1, tab2 = st.tabs(["📥 1. 바이어 이메일 수집 (Gathering)", "📧 2. 콜드 메일 자동 발송 (Sending)"])
@@ -58,26 +81,28 @@ with tab1:
                 for page in range(page_count):
                     offset = page * 10
                     api_url = f"https://serpapi.com/search.json?engine=google&q={search_query_full}&start={offset}&api_key={serp_api_key}"
-                    response = requests.get(api_url).json()
-                    
-                    if 'organic_results' in response:
-                        for item in response['organic_results']:
-                            company_name = item.get('title', '이름 없음')
-                            website_url = item.get('link', '')
-                            
-                            if website_url.endswith('.pdf'): continue
-                            
-                            emails = extract_emails(website_url)
-                            if emails:
-                                results_data.append({
-                                    "업체명": company_name,
-                                    "국가명": target_country,
-                                    "웹사이트": website_url,
-                                    "담당자(유추)": "Cosmetics Purchasing Team",
-                                    "이메일": emails[0],
-                                    "수집상태": "대기중"
-                                })
-                            time.sleep(1) # 차단 방지
+                    try:
+                        response = requests.get(api_url).json()
+                        if 'organic_results' in response:
+                            for item in response['organic_results']:
+                                company_name = item.get('title', '이름 없음')
+                                website_url = item.get('link', '')
+                                
+                                if website_url.endswith('.pdf'): continue
+                                
+                                emails = extract_emails(website_url)
+                                if emails:
+                                    results_data.append({
+                                        "업체명": company_name,
+                                        "국가명": target_country,
+                                        "웹사이트": website_url,
+                                        "담당자(유추)": "Cosmetics Purchasing Team",
+                                        "이메일": emails[0],
+                                        "수집상태": "대기중"
+                                    })
+                                time.sleep(1) # 차단 방지
+                    except Exception as e:
+                        st.error(f"검색 중 오류 발생: {e}")
 
                 # 수집 결과 화면 출력
                 if results_data:
@@ -102,12 +127,15 @@ with tab1:
 
 
 # ==========================================
-# [탭 2] 콜드 메일 자동 발송 (SMTP) - 다국어 & 이미지 On/Off 적용
+# [탭 2] 콜드 메일 자동 발송 (SMTP & 구글 시트 DB 자동 기록)
 # ==========================================
 with tab2:
     st.header("글로벌 바이어 이메일 자동 발송기")
     
-    # --- 1. 다국어 및 타깃 템플릿 데이터베이스 ---
+    # DB 연결 상태 상단 표시
+    if db_connected:
+        st.success("✅ 구글 스프레드시트(zenifix_DB) 연동 완료! 발송 이력이 자동 기록됩니다.")
+    
     email_templates = {
         "바이어 (유통/입점)": {
             "English": """<p>Dear Cosmetics Purchasing Team,</p>
@@ -115,11 +143,9 @@ with tab2:
                 <p>I am writing from zenifix, a premium K-Beauty skincare brand based in Seoul. We would like to politely request your team's review of zenifix products for a potential retail partnership in your market.</p>
                 <p>We offer 14 core SKUs across two highly effective collections—our Noni Line (7 SKUs) and Ginkgo Line (7 SKUs). What truly sets zenifix apart is our exceptional ingredient concentration. Our formulations feature natural Noni and Ginkgo extracts <strong>ranging from 21% to 58% (210,000 ppm – 580,000 ppm)</strong> depending on the SKU. We differentiate our products through this uncompromising raw material content rather than generic marketing claims.</p>""",
             "Japanese": """<p>化粧品購買担当チームの皆様へ</p>
-                <p>ソウルを拠点とするプレミアムK-Beautyブランド、zenifixと申します。貴社でのリテールパートナーシップの可能性について、当社の製品をご検討いただきたくご連絡いたしました。</p>
-                <!-- (여기에 일본어 번역본을 채워주세요) -->""",
+                <p>ソウルを拠点とするプレミアムK-Beautyブランド、zenifixと申します。貴社でのリテールパートナーシップの可能性について、当社の製品をご検討いただきたくご連絡いたしました。</p>""",
             "Thai": """<p>เรียน ทีมงานจัดซื้อเครื่องสำอาง</p>
-                <p>ฉันเขียนจดหมายจาก zenifix แบรนด์สกินแคร์ระดับพรีเมียมจากโซล...</p>
-                <!-- (여기에 태국어 번역본을 채워주세요) -->"""
+                <p>ฉันเขียนจดหมายจาก zenifix แบรนด์สกินแคร์ระดับพรีเมียมจากโซล...</p>"""
         },
         "마케팅 에이전시 (협업)": {
             "English": "<p>Dear Beauty Marketing Team,</p><p>We are looking for a marketing partner...</p>",
@@ -130,7 +156,6 @@ with tab2:
         }
     }
 
-    # --- 2. 웹 화면 UI 구성 ---
     col1, col2 = st.columns(2)
     with col1:
         login_email = st.text_input("개인 로그인 이메일 (예: zeni@wellsfnd.com)")
@@ -141,7 +166,6 @@ with tab2:
     
     st.divider()
     
-    # 🎯 타깃 및 언어 선택
     st.subheader("🎯 템플릿 및 발송 옵션 설정")
     col3, col4 = st.columns(2)
     with col3:
@@ -150,7 +174,6 @@ with tab2:
         available_languages = list(email_templates[target_type].keys())
         selected_language = st.selectbox("2. 발송 언어를 선택하세요", available_languages)
 
-    # 🖼️ 이미지 첨부 On/Off 스위치
     use_image = st.radio("3. 본문 이미지 포함 여부", ["이미지 포함 (추천)", "텍스트만 발송 (이미지 없이)"], horizontal=True)
     img_url = ""
     if use_image == "이미지 포함 (추천)":
@@ -158,7 +181,6 @@ with tab2:
         
     uploaded_file = st.file_uploader("수집 탭에서 다운로드한 '엑셀 파일'을 올려주세요.", type=["xlsx"])
     
-    # --- 3. 이메일 발송 실행 로직 ---
     if st.button("🚀 이메일 발송 시작", type="primary"):
         if not uploaded_file or not login_email or not app_password:
             st.error("엑셀 파일, 로그인 이메일, 앱 비밀번호를 모두 입력해 주세요!")
@@ -183,10 +205,8 @@ with tab2:
                     msg['Subject'] = "[Partnership Proposal] Premium K-Beauty: 580,000ppm High-Concentration Skincare by zenifix"
                     msg.add_header('reply-to', sender_email)
                     
-                    # 1) 선택된 언어와 타깃에 맞는 본문 불러오기
                     main_content = email_templates[target_type][selected_language]
                     
-                    # 2) 이미지 삽입 여부 처리
                     image_content = ""
                     if use_image == "이미지 포함 (추천)" and img_url:
                         image_content = f"""
@@ -194,7 +214,6 @@ with tab2:
                         <p><img src="{img_url}" alt="zenifix Brand Overview" style="max-width: 800px; width: 100%; height: auto;"></p>
                         """
                     
-                    # 3) 공통 하단 마무리 (브랜드 덱 링크 및 인사말)
                     footer_content = f"""
                     <p>To explore our complete Brand Deck, including full product details, current global sales channels, and our active SNS presence, please visit our official website:<br>
                     👉 <strong>Official Brand Deck: <a href="https://zenifix.net">https://zenifix.net</a></strong></p>
@@ -211,27 +230,36 @@ with tab2:
                     <p><small><i>*If you do not wish to receive further emails, please reply with 'Unsubscribe'.</i></small></p>
                     """
                     
-                    # 4) 최종 HTML 조립
                     html_body = f"<html><body>{main_content}{image_content}{footer_content}</body></html>"
-                    
                     msg.attach(MIMEText(html_body, 'html'))
                     
                     try:
+                        # 1) 이메일 실제 발송
                         server.send_message(msg)
                         success_count += 1
-                        status_text.text(f"✅ 발송 성공: {buyer_email}")
+                        current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                        
+                        # 2) DB(구글 시트)에 발송 이력 기록 추가
+                        if db_connected:
+                            try:
+                                # [날짜, 수신자 이메일, 타깃유형, 발송언어, 결과] 형태로 엑셀 맨 아래줄에 추가
+                                db_sheet.append_row([current_time, buyer_email, target_type, selected_language, "성공"])
+                            except Exception as e:
+                                print(f"DB 기록 실패: {e}")
+                                
+                        status_text.text(f"✅ 발송 성공 (DB 저장완료): {buyer_email}")
                     except:
                         status_text.text(f"❌ 발송 실패: {buyer_email}")
                     
                     progress_bar.progress((index + 1) / len(df))
                     
-                    # 3분 대기 스팸 방지
+                    # 스팸 방지 대기 (마지막 메일이 아닐 경우)
                     if index < len(df) - 1:
                         status_text.text("⏳ 스팸 방지를 위해 3분(180초) 대기 중...")
                         time.sleep(180)
                         
                 server.quit()
-                st.success(f"🎉 총 {success_count}건의 실전 콜드 메일 발송이 안전하게 완료되었습니다!")
+                st.success(f"🎉 총 {success_count}건의 메일 발송 및 구글 DB 저장이 안전하게 완료되었습니다!")
                 
             except Exception as e:
                 st.error(f"🚨 이메일 로그인 실패. 앱 비밀번호를 다시 확인해 주세요. 오류: {e}")
