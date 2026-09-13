@@ -39,7 +39,28 @@ except Exception as e:
     st.sidebar.error(f"구글 DB 연결 실패: {e}")
     st.sidebar.warning("발송 이력이 저장되지 않을 수 있습니다.")
 
-
+# ==========================================
+# [영구 템플릿] 제목과 내용을 세트로 관리
+# ==========================================
+if 'email_templates' not in st.session_state:
+    st.session_state.email_templates = {
+        "바이어 (유통/입점)": {
+            "English": {
+                "subject": "[Partnership Proposal] Premium K-Beauty: 580,000ppm High-Concentration Skincare by zenifix",
+                "body": """<p>Dear Cosmetics Purchasing Team,</p>
+<p>I hope this email finds you well.</p>
+<p>I am writing from zenifix, a premium K-Beauty skincare brand based in Seoul. We would like to politely request your team's review of zenifix products for a potential retail partnership in your market.</p>
+<p>We offer 14 core SKUs across two highly effective collections—our Noni Line (7 SKUs) and Ginkgo Line (7 SKUs). What truly sets zenifix apart is our exceptional ingredient concentration. Our formulations feature natural Noni and Ginkgo extracts <strong>ranging from 21% to 58% (210,000 ppm – 580,000 ppm)</strong> depending on the SKU. We differentiate our products through this uncompromising raw material content rather than generic marketing claims.</p>"""
+            }
+        },
+        "마케팅 에이전시 (협업)": {
+            "태국어": {
+                "subject": "[ข้อเสนอความร่วมมือ] สกินแคร์ K-Beauty พรีเมียมจาก zenifix",
+                "body": "<p>เรียน ทีมงานการตลาด,</p>\n<p>เราคือ zenifix แบรนด์สกินแคร์ระดับพรีเมียมจากโซล ประเทศเกาหลีใต้...</p>"
+            }
+        }
+    }
+    
 # 탭(Tab)으로 수집 화면과 발송 화면 분리
 tab1, tab2, tab3 = st.tabs(["📥 1. 이메일 수집 (Gathering)", "📧 2. 자동 발송 (Sending)", "📊 3. 데이터 대시보드 (통계)"])
 
