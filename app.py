@@ -86,40 +86,56 @@ tab1, tab2, tab3 = st.tabs(["📥 1. 이메일 수집 (Gathering)", "📧 2. 자
 
 
 # ==========================================
-# [탭 1] 글로벌 이메일 수집 (자유 입력 방식 & 영문+현지어 듀얼 검색)
+# [탭 1] 글로벌 이메일 수집 (자유 입력 방식 & 국가별 개별 저장)
 # ==========================================
 with tab1:
     st.header("글로벌 이메일 자동 수집기")
     
-    # 💡 번역 지원 국가 사전 (여기에 없는 국가를 입력하면 기본 영어로 검색됩니다)
+    # 💡 번역 지원 국가 사전
     COUNTRY_LANG_MAP = {
         "USA": "en", "UK": "en", "Australia": "en", "Canada": "en",
+        "Ireland": "en", "New Zealand": "en", "India": "en", "Philippines": "en",
         "Germany": "de", "Austria": "de", "France": "fr", 
         "Japan": "ja", "Vietnam": "vi", "Thailand": "th", 
-        "Spain": "es", "Mexico": "es", "UAE": "ar", "Italy": "it",
-        "China": "zh-CN", "Taiwan": "zh-TW", "Russia": "ru",
-        "Brazil": "pt", "Indonesia": "id", "Poland": "pl"
+        "Spain": "es", "Mexico": "es", "UAE": "ar", "Italy": "it"
     }
     
     col1, col2 = st.columns(2)
     with col1:
         serp_api_key = st.text_input("SerpApi Key (필수)", type="password")
-        # 🎯 드롭다운(Multiselect)을 쉼표 구분 '자유 텍스트 입력창'으로 완벽 교체!
-        countries_input = st.text_input("타깃 국가 (쉼표로 구분하여 복수 입력)", value="USA, UK, Germany")
-        # 쉼표(,)를 기준으로 텍스트를 쪼개서 리스트로 자동 변환합니다.
+        countries_input = st.text_input("타깃 국가 (쉼표로 구분하여 복수 입력)", value="USA, Canada, Australia")
         selected_countries = [c.strip() for c in countries_input.split(",") if c.strip()]
         
     with col2:
-        search_keyword = st.text_input("검색 키워드 (영문+현지어 듀얼 검색됨)", value="K-Beauty korean skincare cosmetics distributor contact")
+        search_keyword = st.text_input("검색 키워드 (영문+현지어 듀얼 검색됨)", value="korean cosmetics distributor contact")
         page_count = st.number_input("검색어당 페이지 수", min_value=1, max_value=10, value=2)
 
     if st.button("🔍 이메일 수집 시작", type="primary"):
         if not serp_api_key or not selected_countries:
             st.error("SerpApi Key와 타깃 국가를 최소 1개 이상 입력해 주세요!")
         else:
-            with st.spinner("영문 및 다국어 번역 듀얼 수집 중입니다... (국가가 많을수록 시간이 소요됩니다)"):
-                results_data = []
+            # 💡 국가별로 하나씩 순서대로 처리합니다.
+            for country in selected_countries:
+                st.markdown(f"### 🌍 {country} 수집 현황")
+                status_text = st.empty()
+                country_results = []
                 
+                lang_code = COUNTRY_LANG_MAP.get(country, "en")
+                
+                # 현지어 자동 번역
+                try:
+                    if lang_code != "en":
+                        from deep_translator import GoogleTranslator
+                        translated_keyword = GoogleTranslator(source='auto', target=lang_code).translate(search_keyword)
+                    else:
+                        translated_keyword = search_keyword
+                except:
+                    translated_keyword = search_keyword 
+                
+                search_queries = [f"{search_keyword} {country}"]
+                if translated_keyword != search_keyword:
+                    search_queries.append(f"{translated_keyword} {country}")
+
                 def extract_emails(url):
                     headers = {'User-Agent': 'Mozilla/5.0'}
                     try:
@@ -136,67 +152,64 @@ with tab1:
                     except:
                         return []
 
-                # 입력된 각 국가별로 반복 (예: USA -> UK -> Germany 순서)
-                for country in selected_countries:
-                    lang_code = COUNTRY_LANG_MAP.get(country, "en") # 사전에 없으면 영어(en)로 세팅
+                # 구글 검색 실행
+                api_limit_hit = False
+                for query in search_queries:
+                    if api_limit_hit: break
                     
-                    # 현지어 자동 번역
-                    try:
-                        if lang_code != "en":
-                            from deep_translator import GoogleTranslator
-                            translated_keyword = GoogleTranslator(source='auto', target=lang_code).translate(search_keyword)
-                        else:
-                            translated_keyword = search_keyword
-                    except:
-                        translated_keyword = search_keyword 
-                    
-                    # 💡 핵심: 영어 원본과 현지어 번역본을 모두 검색 리스트에 담기
-                    search_queries = [f"{search_keyword} {country}"]
-                    if translated_keyword != search_keyword:
-                        search_queries.append(f"{translated_keyword} {country}")
-
-                    # 두 가지 검색어로 각각 구글 검색 실행 (리드 2배 확보)
-                    for query in search_queries:
-                        st.info(f"🌍 {country} 수집 중 (검색어: {query})")
-                        for page in range(page_count):
-                            offset = page * 10
-                            api_url = f"https://serpapi.com/search.json?engine=google&q={query}&start={offset}&api_key={serp_api_key}"
-                            try:
-                                response = requests.get(api_url).json()
-                                if 'organic_results' in response:
-                                    for item in response['organic_results']:
-                                        company_name = item.get('title', '이름 없음')
-                                        website_url = item.get('link', '')
-                                        if website_url.endswith('.pdf'): continue
-                                        
-                                        emails = extract_emails(website_url)
-                                        if emails:
-                                            results_data.append({
-                                                "업체명": company_name, "국가명": country, "웹사이트": website_url,
-                                                "담당자(유추)": "Cosmetics Purchasing Team", "이메일": emails[0], "수집상태": "대기중"
-                                            })
-                                        time.sleep(1) 
-                            except Exception as e:
-                                st.warning(f"검색 중 오류 발생: {e}")
-
-                if results_data:
-                    # 중복 이메일 제거 (영어/현지어 겹치는 결과 방지)
-                    df = pd.DataFrame(results_data)
+                    status_text.info(f"🔍 검색 중: {query} ...")
+                    for page in range(page_count):
+                        offset = page * 10
+                        api_url = f"https://serpapi.com/search.json?engine=google&q={query}&start={offset}&api_key={serp_api_key}"
+                        try:
+                            response = requests.get(api_url).json()
+                            
+                            # 💡 SerpApi 크레딧 소진 등 에러 발생 시 명확하게 경고!
+                            if 'error' in response:
+                                st.error(f"🚨 API 에러 발생: {response['error']}")
+                                api_limit_hit = True
+                                break
+                                
+                            if 'organic_results' in response:
+                                for item in response['organic_results']:
+                                    company_name = item.get('title', '이름 없음')
+                                    website_url = item.get('link', '')
+                                    if website_url.endswith('.pdf'): continue
+                                    
+                                    emails = extract_emails(website_url)
+                                    if emails:
+                                        country_results.append({
+                                            "업체명": company_name, "국가명": country, "웹사이트": website_url,
+                                            "담당자(유추)": "Cosmetics Purchasing Team", "이메일": emails[0], "수집상태": "대기중"
+                                        })
+                                    time.sleep(1) 
+                        except Exception as e:
+                            status_text.warning(f"검색 중 일시적 오류 발생: {e}")
+                
+                # 💡 한 국가의 수집이 끝날 때마다 즉시 화면에 엑셀 다운로드 버튼을 띄워줍니다!
+                if country_results:
+                    df = pd.DataFrame(country_results)
                     df = df.drop_duplicates(subset=['이메일'], keep='first')
                     
-                    st.success(f"🎉 듀얼 검색 완료! 총 {len(df)}건의 순수 이메일 수집 완료!")
-                    st.dataframe(df)
+                    status_text.success(f"🎉 {country} 수집 완료! (순수 이메일 {len(df)}건)")
                     
                     output = BytesIO()
                     with pd.ExcelWriter(output, engine='openpyxl') as writer:
                         df.to_excel(writer, index=False)
+                    
+                    # 버튼의 Key를 국가명으로 지정하여 여러 버튼이 생겨도 오류가 나지 않게 함
                     st.download_button(
-                        label="📊 엑셀 파일 다운로드", data=output.getvalue(),
-                        file_name=f"Zenifix_Global_Buyers_{datetime.now().strftime('%Y%m%d')}.xlsx",
-                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                        label=f"📥 {country} 엑셀 파일 다운로드", 
+                        data=output.getvalue(),
+                        file_name=f"Zenifix_Buyers_{country}_{datetime.now().strftime('%Y%m%d')}.xlsx",
+                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                        key=f"download_btn_{country}"
                     )
                 else:
-                    st.warning("수집된 데이터가 없습니다. 키워드나 국가를 변경해 보세요.")
+                    if not api_limit_hit:
+                        status_text.warning(f"⚠️ {country}에서 수집된 이메일이 없습니다.")
+                
+                st.divider() # 국가별 구분선
 
 
 # ==========================================
