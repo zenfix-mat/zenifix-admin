@@ -458,6 +458,54 @@ zenifix<br>
                 st.success(f"🎉 총 {success_count}건 예약 완료! (수신거부 제외: {skip_count}명)\n지정하신 날짜({scheduled_date})에 시스템이 자동으로 발송합니다.")
 
 
+    # 예약 현황 모니터링 대시보드 ---
+
+    st.divider()
+    st.subheader("📋 현재 발송 대기열 (Queue) 현황")
+    
+    if db_connected:
+        try:
+            # 구글 시트 '발송예약' 탭에서 모든 데이터 가져오기
+            queue_records = queue_sheet.get_all_records()
+            
+            if queue_records:
+                df_queue = pd.DataFrame(queue_records)
+                
+                # '상태'가 '대기중'인 데이터만 필터링
+                if '상태' in df_queue.columns:
+                    df_pending = df_queue[df_queue['상태'] == '대기중']
+                else:
+                    df_pending = pd.DataFrame()
+                
+                if not df_pending.empty:
+                    total_pending = len(df_pending)
+                    st.info(f"💡 현재 총 **{total_pending}건**의 메일이 발송 대기 중입니다. (매일 오전 9시 깃허브 로봇이 자동 발송합니다.)")
+                    
+                    # 날짜별로 그룹화하여 몇 건인지 계산
+                    queue_summary = df_pending.groupby('예약일').size().reset_index(name='발송 예정 건수')
+                    
+                    col_q1, col_q2 = st.columns([1, 2])
+                    with col_q1:
+                        st.markdown("**📅 날짜별 예약 요약**")
+                        st.dataframe(queue_summary, hide_index=True, use_container_width=True)
+                        
+                    with col_q2:
+                        st.markdown("**🔍 세부 예약 리스트 (최근 등록순)**")
+                        # 필요한 열만 골라서 최신순(역순)으로 정렬하여 보여줌
+                        display_cols = ['예약일', '국가명', '이메일', '타깃유형']
+                        # 엑셀 열 이름과 매칭되는지 확인 후 노출
+                        valid_cols = [col for col in display_cols if col in df_pending.columns]
+                        st.dataframe(df_pending[valid_cols].iloc[::-1], hide_index=True, use_container_width=True)
+                        
+                else:
+                    st.success("🎉 현재 대기 중인 발송 예약이 없습니다. (모든 예약 건 발송 완료)")
+            else:
+                st.markdown("아직 등록된 예약 데이터가 없습니다.")
+                
+        except Exception as e:
+            st.warning("대기열 정보를 불러오는 중입니다... (새로고침을 눌러주세요)")
+
+
 # ==========================================
 # [탭 3] 글로벌 발송 통계 대시보드
 # ==========================================
