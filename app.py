@@ -41,7 +41,7 @@ except Exception as e:
 
 
 # 탭(Tab)으로 수집 화면과 발송 화면 분리
-tab1, tab2 = st.tabs(["📥 1. 이메일 수집 (Gathering)", "📧 2. 콜드 메일 자동 발송 (Sending)"])
+tab1, tab2, tab3 = st.tabs(["📥 1. 이메일 수집 (Gathering)", "📧 2. 자동 발송 (Sending)", "📊 3. 데이터 대시보드 (통계)"])
 
 # ==========================================
 # [탭 1] 글로벌 이메일 수집 (SerpApi)
@@ -374,3 +374,78 @@ zenifix<br>
                     
                 except Exception as e:
                     st.error(f"🚨 이메일 로그인 실패. 오류: {e}")
+
+
+# ==========================================
+# [탭 3] 글로벌 발송 통계 대시보드
+# ==========================================
+with tab3:
+    import plotly.express as px
+    
+    st.header("📊 글로벌 발송 데이터 대시보드")
+    
+    if not db_connected:
+        st.warning("🚨 구글 스프레드시트와 연결되어 있지 않아 데이터를 불러올 수 없습니다.")
+    else:
+        # 데이터 새로고침 버튼
+        if st.button("🔄 최신 데이터 불러오기", use_container_width=True):
+            st.rerun()
+            
+        st.divider()
+        
+        try:
+            # 구글 시트에서 모든 데이터 가져오기
+            raw_data = db_sheet.get_all_values()
+            
+            # 헤더(첫 줄)를 제외하고 데이터가 1줄이라도 있는지 확인
+            if len(raw_data) > 1:
+                # 데이터를 표(DataFrame) 형태로 변환
+                df_stats = pd.DataFrame(raw_data[1:], columns=raw_data[0])
+                
+                # --- 1. 핵심 성과 지표 (KPI) 요약 ---
+                total_sent = len(df_stats)
+                total_unsubs = len(blacklist_emails) if 'blacklist_emails' in locals() else 0
+                total_countries = df_stats['국가명'].nunique() if '국가명' in df_stats.columns else 0
+                
+                col1, col2, col3 = st.columns(3)
+                col1.metric(label="🚀 총 발송 성공", value=f"{total_sent} 건")
+                col2.metric(label="🌍 도달 국가 수", value=f"{total_countries} 개국")
+                col3.metric(label="🚫 수신 거부 (블랙리스트)", value=f"{total_unsubs} 건")
+                
+                st.divider()
+                
+                # --- 2. 시각화 차트 ---
+                col_chart1, col_chart2 = st.columns(2)
+                
+                with col_chart1:
+                    st.subheader("📍 국가별 발송 비중")
+                    if '국가명' in df_stats.columns:
+                        country_counts = df_stats['국가명'].value_counts().reset_index()
+                        country_counts.columns = ['국가명', '발송건수']
+                        # 원형 차트 (Pie Chart)
+                        fig_pie = px.pie(country_counts, values='발송건수', names='국가명', hole=0.4, 
+                                         color_discrete_sequence=px.colors.sequential.Teal)
+                        st.plotly_chart(fig_pie, use_container_width=True)
+                        
+                with col_chart2:
+                    st.subheader("🎯 타깃 그룹별 발송 현황")
+                    if '타깃유형' in df_stats.columns:
+                        target_counts = df_stats['타깃유형'].value_counts().reset_index()
+                        target_counts.columns = ['타깃유형', '발송건수']
+                        # 막대 차트 (Bar Chart)
+                        fig_bar = px.bar(target_counts, x='타깃유형', y='발송건수', text_auto=True,
+                                         color='타깃유형', color_discrete_sequence=px.colors.qualitative.Pastel)
+                        st.plotly_chart(fig_bar, use_container_width=True)
+
+                st.divider()
+                
+                # --- 3. 최근 발송 이력 테이블 ---
+                st.subheader("📝 최근 발송 이력 (최신 100건)")
+                # 데이터를 거꾸로 뒤집어 최신순으로 정렬 후 100개만 노출
+                st.dataframe(df_stats.iloc[::-1].head(100), use_container_width=True)
+                
+            else:
+                st.info("💡 아직 구글 시트에 기록된 발송 데이터가 없습니다. 첫 콜드 메일을 발송하시면 통계가 자동으로 생성됩니다.")
+                
+        except Exception as e:
+            st.error(f"데이터를 불러오는 중 오류가 발생했습니다: {e}")
