@@ -1,0 +1,30 @@
+name: Zenifix Daily Auto Sender
+
+on:
+  # 매일 한국 시간 오전 9시 (UTC 00:00) 에 자동 실행
+  schedule:
+    - cron: '0 0 * * *'
+  # 수동으로 버튼을 눌러서 실행할 수 있는 기능 켜기
+  workflow_dispatch:
+
+jobs:
+  run-sender:
+    runs-on: ubuntu-latest
+    steps:
+      - name: 1. 코드 가져오기
+        uses: actions/checkout@v3
+
+      - name: 2. 파이썬 설치
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.10'
+
+      - name: 3. 필요 라이브러리 설치
+        run: pip install gspread google-auth pandas
+
+      - name: 4. 발송 스크립트 실행!
+        env:
+          GCP_SERVICE_ACCOUNT: ${{ secrets.GCP_SERVICE_ACCOUNT }}
+          MAIL_ID: ${{ secrets.MAIL_ID }}
+          MAIL_PW: ${{ secrets.MAIL_PW }}
+        run: python scheduler.py
