@@ -86,12 +86,16 @@ tab1, tab2, tab3 = st.tabs(["📥 1. 이메일 수집 (Gathering)", "📧 2. 자
 
 
 # ==========================================
-# [탭 1] 글로벌 이메일 수집 (자유 입력 방식 & 국가별 개별 저장)
+# [탭 1] 글로벌 이메일 수집 (기억 장치 적용 및 국가별 개별 저장)
 # ==========================================
 with tab1:
     st.header("글로벌 이메일 자동 수집기")
     
-    # 💡 번역 지원 국가 사전
+    # 💡 수집된 엑셀 데이터를 보관할 '기억 장치' 초기화
+    if 'gathered_files' not in st.session_state:
+        st.session_state.gathered_files = {}
+
+    # 번역 지원 국가 사전
     COUNTRY_LANG_MAP = {
         "USA": "en", "UK": "en", "Australia": "en", "Canada": "en",
         "Ireland": "en", "New Zealand": "en", "India": "en", "Philippines": "en",
@@ -114,7 +118,9 @@ with tab1:
         if not serp_api_key or not selected_countries:
             st.error("SerpApi Key와 타깃 국가를 최소 1개 이상 입력해 주세요!")
         else:
-            # 💡 국가별로 하나씩 순서대로 처리합니다.
+            # 새로운 수집을 시작하면 이전 기억 장치를 비워줍니다.
+            st.session_state.gathered_files = {}
+            
             for country in selected_countries:
                 st.markdown(f"### 🌍 {country} 수집 현황")
                 status_text = st.empty()
@@ -152,7 +158,6 @@ with tab1:
                     except:
                         return []
 
-                # 구글 검색 실행
                 api_limit_hit = False
                 for query in search_queries:
                     if api_limit_hit: break
@@ -164,7 +169,6 @@ with tab1:
                         try:
                             response = requests.get(api_url).json()
                             
-                            # 💡 SerpApi 크레딧 소진 등 에러 발생 시 명확하게 경고!
                             if 'error' in response:
                                 st.error(f"🚨 API 에러 발생: {response['error']}")
                                 api_limit_hit = True
@@ -186,30 +190,39 @@ with tab1:
                         except Exception as e:
                             status_text.warning(f"검색 중 일시적 오류 발생: {e}")
                 
-                # 💡 한 국가의 수집이 끝날 때마다 즉시 화면에 엑셀 다운로드 버튼을 띄워줍니다!
+                # 💡 수집 완료된 데이터를 기억 장치(session_state)에 저장합니다!
                 if country_results:
                     df = pd.DataFrame(country_results)
                     df = df.drop_duplicates(subset=['이메일'], keep='first')
-                    
-                    status_text.success(f"🎉 {country} 수집 완료! (순수 이메일 {len(df)}건)")
                     
                     output = BytesIO()
                     with pd.ExcelWriter(output, engine='openpyxl') as writer:
                         df.to_excel(writer, index=False)
                     
-                    # 버튼의 Key를 국가명으로 지정하여 여러 버튼이 생겨도 오류가 나지 않게 함
-                    st.download_button(
-                        label=f"📥 {country} 엑셀 파일 다운로드", 
-                        data=output.getvalue(),
-                        file_name=f"Zenifix_Buyers_{country}_{datetime.now().strftime('%Y%m%d')}.xlsx",
-                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                        key=f"download_btn_{country}"
-                    )
+                    st.session_state.gathered_files[country] = {
+                        "count": len(df),
+                        "data": output.getvalue()
+                    }
+                    status_text.success(f"🎉 {country} 수집 및 저장 완료! (순수 이메일 {len(df)}건)")
                 else:
                     if not api_limit_hit:
                         status_text.warning(f"⚠️ {country}에서 수집된 이메일이 없습니다.")
                 
-                st.divider() # 국가별 구분선
+                st.divider()
+
+    # ==========================================
+    # 💡 기억 장치에 저장된 엑셀 파일 다운로드 버튼 노출 (새로고침 방어)
+    # ==========================================
+    if st.session_state.gathered_files:
+        st.subheader("📥 수집 완료된 국가별 엑셀 다운로드")
+        for country, file_info in st.session_state.gathered_files.items():
+            st.download_button(
+                label=f"📥 {country} 엑셀 파일 다운로드 ({file_info['count']}건)", 
+                data=file_info['data'],
+                file_name=f"Zenifix_Buyers_{country}_{datetime.now().strftime('%Y%m%d')}.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                key=f"download_btn_{country}"
+            )
 
 
 # ==========================================
