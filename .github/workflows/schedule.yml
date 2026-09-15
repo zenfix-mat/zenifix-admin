@@ -3,7 +3,7 @@ name: Zenifix Daily Auto Sender
 on:
   # 매일 한국 시간 오전 9시 (UTC 00:00) 에 자동 실행
   schedule:
-    - cron: '0 0 * * *'
+    - cron: '*/15 * * * *'
   # 수동으로 버튼을 눌러서 실행할 수 있는 기능 켜기
   workflow_dispatch:
 
