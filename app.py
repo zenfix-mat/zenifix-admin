@@ -67,7 +67,7 @@ try:
 
     # 5. [새로 추가] 이메일 수집 예약(Queue) 탭 세팅
     try:
-        gather_queue_sheet = gc.open("zenifix_DB").worksheet("수신예약")
+        gather_queue_sheet = gc.open("zenifix_DB").worksheet("수집예약")
     except:
         gather_queue_sheet = gc.open("zenifix_DB").add_worksheet(title="수집예약", rows="1000", cols="7")
         gather_queue_sheet.append_row(["예약일시", "타깃국가", "검색키워드", "페이지수", "상태", "수집건수", "등록일시"])
