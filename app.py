@@ -119,12 +119,11 @@ if 'email_templates' not in st.session_state:
 tab1, tab2, tab3 = st.tabs(["📥 1. 이메일 수집 (Gathering)", "📧 2. 자동 발송 (Sending)", "📊 3. 데이터 대시보드 (통계)"])
 
 # ==========================================
-# [탭 1] 글로벌 이메일 수집 (자유 입력 방식 & 스케줄링 예약 기능)
+# [탭 1] 글로벌 이메일 수집 (스케줄링 예약 및 대기열 관리자)
 # ==========================================
 with tab1:
     st.header("글로벌 이메일 자동 수집기")
     
-    # 번역 지원 국가 사전
     COUNTRY_LANG_MAP = {
         "USA": "en", "UK": "en", "Australia": "en", "Canada": "en",
         "Germany": "de", "Austria": "de", "France": "fr", 
@@ -141,14 +140,14 @@ with tab1:
         selected_countries = [c.strip() for c in countries_input.split(",") if c.strip()]
         
     with col2:
-        search_keyword = st.text_input("검색 키워드 (영문+현지어 듀얼 검색됨)", value="K-beauty korean skincare cosmetics distributor contact")
+        search_keyword = st.text_input("검색 키워드 (영문+현지어 듀얼 검색됨)", value="korean cosmetics distributor contact")
         page_count = st.number_input("검색어당 페이지 수", min_value=1, max_value=10, value=2)
 
     st.divider()
 
     # --- 🕒 수집 스케줄링 (예약 설정) ---
     st.subheader("🕒 수집 예약 스케줄링")
-    st.info("컴퓨터가 꺼져 있어도 클라우드 로봇이 지정된 시간에 자동으로 수집을 진행합니다.")
+    st.info("원하는 날짜와 시간을 지정해 두면, 클라우드 로봇이 알아서 구글을 검색하고 바이어 리스트를 모아옵니다.")
     
     col_date, col_time = st.columns(2)
     with col_date:
@@ -156,108 +155,198 @@ with tab1:
     with col_time:
         gather_time = st.time_input("수집을 시작할 시간")
         
-    # 예약일시 결합
     scheduled_datetime = datetime.combine(gather_date, gather_time).strftime("%Y-%m-%d %H:%M")
     
-    col_btn1, col_btn2 = st.columns(2)
-    
-    # 1) 즉시 수집 버튼 (기존 로직)
-    with col_btn1:
-        if st.button("⚡ 즉시 수집 시작 (현재 화면에서 대기)", use_container_width=True):
-            if not serp_api_key or not selected_countries:
-                st.error("SerpApi Key와 타깃 국가를 최소 1개 이상 입력해 주세요!")
-            else:
-                st.warning("즉시 수집은 화면을 켜두셔야 합니다. 대량 수집은 가급적 '예약'을 권장합니다.")
-                # (이곳에는 기존의 즉시 수집 후 엑셀 다운로드 로직이 그대로 들어갑니다 - 이전 코드와 동일하여 생략 가능하나 기능 유지를 위해 포함)
-                # 구현 편의상 스케줄링 예약 집중을 위해 코드량 조절
-                st.info("현재는 즉시 수집보다 '예약 등록'을 통한 자동화 처리를 권장합니다.")
-    
-    # 2) 📅 예약 등록 버튼 (신규 로직)
-    with col_btn2:
-        if st.button("📅 지정한 날짜/시간에 수집 예약하기", type="primary", use_container_width=True):
-            if not serp_api_key or not selected_countries:
-                st.error("SerpApi Key와 타깃 국가를 입력해 주세요!")
-            elif not db_connected:
-                st.error("구글 시트가 연결되지 않아 예약을 등록할 수 없습니다.")
-            else:
-                with st.spinner("예약 대기열에 등록 중입니다..."):
-                    success_count = 0
-                    current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                    
+    if st.button("📅 지정한 날짜/시간에 수집 예약하기", type="primary", use_container_width=True):
+        if not serp_api_key or not selected_countries:
+            st.error("SerpApi Key와 타깃 국가를 입력해 주세요!")
+        elif not db_connected:
+            st.error("구글 시트가 연결되지 않아 예약을 등록할 수 없습니다.")
+        else:
+            with st.spinner("예약 대기열에 등록 중입니다..."):
+                success_count = 0
+                import pytz
+                kst = pytz.timezone('Asia/Seoul')
+                current_time = datetime.now(kst).strftime("%Y-%m-%d %H:%M:%S")
+                
+                try:
+                    gather_queue_sheet = gc.open("zenifix_DB").worksheet("수집예약")
                     for country in selected_countries:
-                        try:
-                            # 구글 시트 [수집예약] 탭에 [예약일시, 국가, 키워드, 페이지수, 상태, 수집건수, 등록일시] 저장
-                            gather_queue_sheet.append_row([
-                                scheduled_datetime, country, search_keyword, page_count, 
-                                "대기중", "0", current_time
-                            ])
-                            success_count += 1
-                        except Exception as e:
-                            st.error(f"DB 기록 실패 ({country}): {e}")
-                            
-                st.success(f"🎉 총 {success_count}개 국가의 수집 예약이 완료되었습니다! \n지정하신 시간({scheduled_datetime})에 깃허브 로봇이 수집을 시작합니다.")
+                        gather_queue_sheet.append_row([
+                            scheduled_datetime, country, search_keyword, page_count, 
+                            "대기중", "0", current_time
+                        ])
+                        success_count += 1
+                    st.success(f"🎉 총 {success_count}개 지역의 수집 예약이 완료되었습니다!")
+                except Exception as e:
+                    st.error(f"DB 기록 실패: {e}")
 
     # ==========================================
-    # --- 📊 수집 예약 현황 및 결과 대시보드 ---
+    # --- 📊 수집 예약 대기열 및 완료 현황 관리 ---
     # ==========================================
     st.divider()
-    st.subheader("📋 수집 예약 대기열 및 완료 현황")
+    st.subheader("📋 수집 예약 대기열 및 현황 관리")
     
     if db_connected:
         try:
-            # 수집 예약 데이터 가져오기
+            gather_queue_sheet = gc.open("zenifix_DB").worksheet("수집예약")
             g_queue_records = gather_queue_sheet.get_all_records()
+            
             if g_queue_records:
                 df_g_queue = pd.DataFrame(g_queue_records)
+                # 구글 시트의 실제 행 번호(2번째 줄부터 시작)를 매핑해 줍니다.
+                df_g_queue['시트행번호'] = df_g_queue.index + 2
                 
-                # 대기중인 데이터와 완료된 데이터 분리
-                df_g_pending = df_g_queue[df_g_queue['상태'] == '대기중']
-                df_g_done = df_g_queue[df_g_queue['상태'] == '수집완료']
+                # '대기중' 또는 '진행중'인 항목
+                df_pending = df_g_queue[df_g_queue['상태'].isin(['대기중', '진행중'])].copy()
+                # '수집완료' 항목
+                df_done = df_g_queue[df_g_queue['상태'] == '수집완료'].copy()
                 
-                col_q1, col_q2 = st.columns(2)
-                
-                with col_q1:
-                    st.markdown(f"**⏳ 수집 대기 중 ({len(df_g_pending)}건)**")
-                    if not df_g_pending.empty:
-                        st.dataframe(df_g_pending[['예약일시', '타깃국가', '검색키워드', '상태']].iloc[::-1], hide_index=True, use_container_width=True)
-                    else:
-                        st.info("대기 중인 수집 예약이 없습니다.")
+                # -----------------------------------
+                # 1. 수집 대기 중 (관리 & 수동 실행)
+                # -----------------------------------
+                st.markdown(f"**⏳ 수집 대기 및 진행 중 ({len(df_pending)}건)**")
+                if not df_pending.empty:
+                    df_pending.insert(0, '삭제선택', False)
+                    # 데이터 에디터로 체크박스 UI 제공
+                    edited_pending = st.data_editor(
+                        df_pending[['삭제선택', '시트행번호', '예약일시', '타깃국가', '검색키워드', '상태']],
+                        hide_index=True,
+                        use_container_width=True,
+                        disabled=['시트행번호', '예약일시', '타깃국가', '검색키워드', '상태'],
+                        column_config={"삭제선택": st.column_config.CheckboxColumn("삭제", default=False)}
+                    )
+                    
+                    col_m1, col_m2 = st.columns(2)
+                    with col_m1:
+                        # 🗑️ [기능 1] 선택 삭제
+                        if st.button("🗑️ 선택한 예약 삭제하기"):
+                            rows_to_delete = edited_pending[edited_pending['삭제선택'] == True]['시트행번호'].tolist()
+                            if rows_to_delete:
+                                # 시트 행이 꼬이지 않도록 맨 아랫줄부터 거꾸로 지웁니다.
+                                for r in sorted(rows_to_delete, reverse=True):
+                                    gather_queue_sheet.delete_rows(r)
+                                st.success("선택한 예약이 시트에서 삭제되었습니다.")
+                                st.rerun()
+                            else:
+                                st.warning("삭제할 항목을 먼저 체크해 주세요.")
+                    
+                    with col_m2:
+                        # 🚀 [기능 2] 수동 즉시 수집
+                        if st.button("🚀 시간이 지난 예약 '수동으로 강제 수집'"):
+                            import pytz
+                            kst = pytz.timezone('Asia/Seoul')
+                            now_kst = datetime.now(kst).strftime("%Y-%m-%d %H:%M")
+                            
+                            # 시간이 지났고 대기중인 것만 색출
+                            past_due = df_pending[(df_pending['상태'] == '대기중') & (df_pending['예약일시'] <= now_kst)]
+                            
+                            if past_due.empty:
+                                st.info("현재 시간이 지나 대기 중인 항목이 없습니다.")
+                            else:
+                                gather_result_sheet = gc.open("zenifix_DB").worksheet("수집결과")
+                                
+                                for idx, row in past_due.iterrows():
+                                    r_num = row['시트행번호']
+                                    t_loc = row['타깃국가']
+                                    t_kw = row['검색키워드']
+                                    p_cnt = int(row.get('페이지수', 2))
+                                    
+                                    # [상태 업데이트: 대기중 -> 진행중]
+                                    gather_queue_sheet.update_cell(r_num, 5, "진행중")
+                                    st.toast(f"[{t_loc}] 수집 진행중...")
+                                    
+                                    # 언어 변환 및 검색 (gatherer.py 로직)
+                                    lang_code = "en"
+                                    for c, c_code in COUNTRY_LANG_MAP.items():
+                                        if c.lower() in t_loc.lower():
+                                            lang_code = c_code
+                                            break
+                                    try:
+                                        if lang_code != "en":
+                                            from deep_translator import GoogleTranslator
+                                            trans_kw = GoogleTranslator(source='auto', target=lang_code).translate(t_kw)
+                                        else:
+                                            trans_kw = t_kw
+                                    except:
+                                        trans_kw = t_kw
+                                        
+                                    queries = [f"{t_kw} {t_loc}"]
+                                    if trans_kw != t_kw: queries.append(f"{trans_kw} {t_loc}")
+                                    
+                                    collected_cnt = 0
+                                    api_limit = False
+                                    
+                                    def extract_emails(url):
+                                        try:
+                                            resp = requests.get(url, headers={'User-Agent': 'Mozilla/5.0'}, timeout=5)
+                                            soup = BeautifulSoup(resp.text, 'html.parser')
+                                            ep = r'[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}'
+                                            emls = re.findall(ep, soup.get_text(separator=' '))
+                                            for link in soup.find_all('a'):
+                                                href = link.get('href')
+                                                if href and href.startswith('mailto:'):
+                                                    emls.append(href.replace('mailto:', '').split('?')[0])
+                                            return list({e.lower() for e in emls if not e.endswith(('.png', '.jpg', '.gif'))})
+                                        except: return []
+
+                                    for q in queries:
+                                        if api_limit: break
+                                        for p in range(p_cnt):
+                                            url = f"https://serpapi.com/search.json?engine=google&q={q}&start={p*10}&api_key={serp_api_key}"
+                                            try:
+                                                res = requests.get(url).json()
+                                                if 'error' in res:
+                                                    api_limit = True
+                                                    break
+                                                if 'organic_results' in res:
+                                                    for item in res['organic_results']:
+                                                        link = item.get('link', '')
+                                                        if link.endswith('.pdf'): continue
+                                                        found = extract_emails(link)
+                                                        if found:
+                                                            c_time = datetime.now(kst).strftime("%Y-%m-%d %H:%M:%S")
+                                                            gather_result_sheet.append_row([c_time, t_loc, item.get('title',''), link, found[0], t_kw])
+                                                            collected_cnt += 1
+                                                    time.sleep(1)
+                                            except: pass
+                                            
+                                    # [상태 업데이트: 진행중 -> 수집완료]
+                                    gather_queue_sheet.update_cell(r_num, 5, "수집완료")
+                                    gather_queue_sheet.update_cell(r_num, 6, str(collected_cnt))
+                                
+                                st.success("🎉 강제 수동 수집이 모두 완료되었습니다!")
+                                st.rerun()
+                else:
+                    st.info("대기 중인 수집 예약이 없습니다.")
                         
-                with col_q2:
-                    st.markdown(f"**✅ 수집 완료 내역 ({len(df_g_done)}건)**")
-                    if not df_g_done.empty:
-                        st.dataframe(df_g_done[['예약일시', '타깃국가', '수집건수', '상태']].iloc[::-1], hide_index=True, use_container_width=True)
-                    else:
-                        st.info("최근 완료된 수집 내역이 없습니다.")
+                # -----------------------------------
+                # 2. 수집 완료 내역 (자동 분류 & 비우기 기능)
+                # -----------------------------------
+                st.markdown("<br>", unsafe_allow_html=True)
+                col_d1, col_d2 = st.columns([3, 1])
+                with col_d1:
+                    st.markdown(f"**✅ 수집 완료 내역 ({len(df_done)}건)**")
+                with col_d2:
+                    # 🧹 [기능 3] 완료 내역 시트에서 자동 삭제
+                    if st.button("🧹 완료 목록 삭제"):
+                        if not df_done.empty:
+                            rows_to_clear = df_done['시트행번호'].tolist()
+                            for r in sorted(rows_to_clear, reverse=True):
+                                gather_queue_sheet.delete_rows(r)
+                            st.toast("완료된 내역이 모두 정리되었습니다.")
+                            st.rerun()
+
+                if not df_done.empty:
+                    st.dataframe(df_done[['예약일시', '타깃국가', '수집건수', '상태']].iloc[::-1], hide_index=True, use_container_width=True)
+                else:
+                    st.info("최근 완료된 수집 내역이 없습니다.")
+                    
             else:
                 st.markdown("아직 등록된 수집 예약 데이터가 없습니다.")
                 
-            st.divider()
-            
-            # 수집 완료된 데이터 다운로드 버튼
-            st.markdown("##### 📥 수집 완료된 바이어 DB 다운로드")
-            st.caption("로봇이 성공적으로 수집한 최종 바이어 리스트를 다운로드하여 [탭 2] 발송에 사용하세요.")
-            
-            result_records = gather_result_sheet.get_all_records()
-            if result_records:
-                df_result = pd.DataFrame(result_records)
-                
-                output = BytesIO()
-                with pd.ExcelWriter(output, engine='openpyxl') as writer:
-                    df_result.to_excel(writer, index=False)
-                    
-                st.download_button(
-                    label=f"📊 로봇이 수집한 전체 바이어 DB 다운로드 (총 {len(df_result)}건)", 
-                    data=output.getvalue(),
-                    file_name=f"Zenifix_Auto_Gathered_{datetime.now().strftime('%Y%m%d')}.xlsx",
-                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                    type="primary"
-                )
-            else:
-                st.info("아직 수집이 완료된 바이어 데이터가 없습니다.")
-                
         except Exception as e:
-            st.warning("데이터를 불러오는 중입니다... (새로고침을 눌러주세요)")
+            st.warning(f"대기열 정보를 불러오는 중 오류 발생: {e}")
 
 
 # ==========================================
