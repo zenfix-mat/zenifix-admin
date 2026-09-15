@@ -7,6 +7,7 @@ from bs4 import BeautifulSoup
 import gspread
 from google.oauth2.service_account import Credentials
 from datetime import datetime
+import pytz
 from deep_translator import GoogleTranslator
 
 # 1. 깃허브 금고(Secrets)에서 열쇠 꺼내오기
@@ -22,7 +23,9 @@ gc = gspread.authorize(credentials)
 queue_sheet = gc.open("zenifix_DB").worksheet("수집예약")
 result_sheet = gc.open("zenifix_DB").worksheet("수집결과")
 
-now_str = datetime.now().strftime("%Y-%m-%d %H:%M")
+# 👇 [핵심 패치] 타임존을 무조건 한국(서울) 시간으로 고정합니다!
+kst = pytz.timezone('Asia/Seoul')
+now_str = datetime.now(kst).strftime("%Y-%m-%d %H:%M")
 print(f"[{now_str}] 🤖 수집 전용 로봇 가동 시작...")
 
 # 언어 매핑 사전
@@ -41,7 +44,7 @@ pending_tasks = []
 for idx, row in enumerate(records, start=2): # 엑셀은 2번째 줄부터
     status = str(row.get("상태", ""))
     reserve_time = str(row.get("예약일시", ""))
-    # 상태가 대기중이고, 지정한 시간이 현재 시간과 같거나 지났을 경우 색출
+    # 상태가 대기중이고, 지정한 시간(KST)이 현재 시간(KST)과 같거나 지났을 경우 색출
     if status == "대기중" and reserve_time <= now_str:
         pending_tasks.append((idx, row))
 
@@ -117,7 +120,8 @@ for row_num, row_data in pending_tasks:
                         
                         emails = extract_emails(url)
                         if emails:
-                            current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                            # 👇 [핵심 패치 2] 데이터를 시트에 저장할 때 찍히는 시간도 KST로 고정합니다.
+                            current_time = datetime.now(kst).strftime("%Y-%m-%d %H:%M:%S")
                             # 수집결과 시트에 1줄씩 저장: [수집일시, 국가명, 업체명, 웹사이트, 이메일, 검색키워드]
                             result_sheet.append_row([current_time, target_loc, company, url, emails[0], keyword])
                             collected_count += 1
