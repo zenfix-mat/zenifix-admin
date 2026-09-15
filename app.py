@@ -121,136 +121,154 @@ zenifix@wellsfnd.com</p>
 tab1, tab2, tab3 = st.tabs(["📥 1. 이메일 수집 (Gathering)", "📧 2. 자동 발송 (Sending)", "📊 3. 데이터 대시보드 (통계)"])
 
 # ==========================================
-# [탭 1] 글로벌 이메일 수집 (다중 국가 & 영문+현지어 듀얼 검색 복구)
+# [탭 1] 글로벌 이메일 수집 (국가/도시 자유 직접 입력 & 듀얼 검색)
 # ==========================================
 with tab1:
     st.header("글로벌 이메일 자동 수집기")
     
+    # 💡 수집된 엑셀 데이터를 보관할 '기억 장치' 초기화
     if 'gathered_files' not in st.session_state:
         st.session_state.gathered_files = {}
-        
-    # 국가별 언어 코드 매핑
+
+    # 번역 지원 국가 사전 (도메인 또는 지역 이름에 이 단어가 포함되면 해당 언어로 번역)
     COUNTRY_LANG_MAP = {
         "USA": "en", "UK": "en", "Australia": "en", "Canada": "en",
         "Ireland": "en", "New Zealand": "en", "India": "en", "Philippines": "en",
         "Germany": "de", "Austria": "de", "France": "fr", 
         "Japan": "ja", "Vietnam": "vi", "Thailand": "th", 
         "Spain": "es", "Mexico": "es", "UAE": "ar", "Italy": "it",
-        "Korea": "ko"
+        "Korea": "ko", "China": "zh-CN", "Taiwan": "zh-TW", "Russia": "ru",
+        "Brazil": "pt", "Indonesia": "id", "Poland": "pl"
     }
     
     col1, col2 = st.columns(2)
     with col1:
         serp_api_key = st.text_input("SerpApi Key (필수)", type="password")
-        selected_countries = st.multiselect("타깃 국가 (복수 선택 가능)", list(COUNTRY_LANG_MAP.keys()), default=["USA"])
+        # 🎯 선택창(Multiselect)에서 쉼표로 구분하는 '자유 텍스트 입력창'으로 확장 복구!
+        locations_input = st.text_input("타깃 국가 및 도시 (쉼표로 구분하여 자유롭게 복수 입력)", value="USA, New York, London, UK")
+        # 쉼표(,)를 기준으로 텍스트를 쪼개서 리스트로 자동 변환합니다.
+        selected_locations = [loc.strip() for loc in locations_input.split(",") if loc.strip()]
+        
     with col2:
         search_keyword = st.text_input("검색 키워드 (영문+현지어 듀얼 검색됨)", value="korean cosmetics distributor contact")
         page_count = st.number_input("검색어당 페이지 수", min_value=1, max_value=10, value=2)
 
     if st.button("🔍 이메일 수집 시작", type="primary"):
-        if not serp_api_key or not selected_countries:
-            st.error("SerpApi Key와 타깃 국가를 최소 1개 이상 선택해 주세요!")
+        if not serp_api_key or not selected_locations:
+            st.error("SerpApi Key와 타깃 국가/도시를 최소 1개 이상 입력해 주세요!")
         else:
-            # 새로운 수집 시작 시 기억 장치 초기화
+            # 새로운 수집 시작 시 기억 장치 비우기
             st.session_state.gathered_files = {}
             
-            for country in selected_countries:
-                st.markdown(f"### 🌍 {country} 수집 현황")
-                status_text = st.empty()
-                country_results = []
-                
-                lang_code = COUNTRY_LANG_MAP.get(country, "en")
-                
-                # 현지어 번역 로직
-                try:
-                    if lang_code != "en":
-                        translated_keyword = GoogleTranslator(source='auto', target=lang_code).translate(search_keyword)
-                    else:
-                        translated_keyword = search_keyword
-                except:
-                    translated_keyword = search_keyword 
-                
-                # 영어 원본과 현지어 번역본 모두 검색 (듀얼 검색)
-                search_queries = [f"{search_keyword} {country}"]
-                if translated_keyword != search_keyword:
-                    search_queries.append(f"{translated_keyword} {country}")
-
-                def extract_emails(url):
-                    headers = {'User-Agent': 'Mozilla/5.0'}
+            with st.spinner("다국어 번역 및 이메일 수집 중입니다... (입력된 지역이 많을수록 시간이 소요됩니다)"):
+                for location in selected_locations:
+                    st.markdown(f"### 🌍 {location} 수집 현황")
+                    status_text = st.empty()
+                    location_results = []
+                    
+                    # 입력된 지역 이름(예: Paris, France) 안에 사전의 국가명이 포함되어 있는지 확인하여 언어 코드 추출
+                    lang_code = "en"
+                    for country, code in COUNTRY_LANG_MAP.items():
+                        if country.lower() in location.lower():
+                            lang_code = code
+                            break
+                    
+                    # 현지어 자동 번역
                     try:
-                        response = requests.get(url, headers=headers, timeout=5)
-                        soup = BeautifulSoup(response.text, 'html.parser')
-                        email_pattern = r'[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}'
-                        found_emails = re.findall(email_pattern, soup.get_text(separator=' '))
-                        for link in soup.find_all('a'):
-                            href = link.get('href')
-                            if href and href.startswith('mailto:'):
-                                found_emails.append(href.replace('mailto:', '').split('?')[0])
-                        valid_emails = {e.lower() for e in found_emails if not e.endswith(('.png', '.jpg', '.gif'))}
-                        return list(valid_emails)
+                        if lang_code != "en":
+                            from deep_translator import GoogleTranslator
+                            translated_keyword = GoogleTranslator(source='auto', target=lang_code).translate(search_keyword)
+                        else:
+                            translated_keyword = search_keyword
                     except:
-                        return []
-
-                api_limit_hit = False
-                for query in search_queries:
-                    if api_limit_hit: break
+                        translated_keyword = search_keyword 
                     
-                    status_text.info(f"🔍 검색 중: {query} ...")
-                    for page in range(page_count):
-                        offset = page * 10
-                        api_url = f"https://serpapi.com/search.json?engine=google&q={query}&start={offset}&api_key={serp_api_key}"
+                    # 영어 원본과 현지어 번역본 모두 검색 리스트에 담기
+                    search_queries = [f"{search_keyword} {location}"]
+                    if translated_keyword != search_keyword:
+                        search_queries.append(f"{translated_keyword} {location}")
+
+                    def extract_emails(url):
+                        headers = {'User-Agent': 'Mozilla/5.0'}
                         try:
-                            response = requests.get(api_url).json()
-                            if 'error' in response:
-                                st.error(f"🚨 API 에러 발생: {response['error']}")
-                                api_limit_hit = True
-                                break
-                            if 'organic_results' in response:
-                                for item in response['organic_results']:
-                                    company_name = item.get('title', '이름 없음')
-                                    website_url = item.get('link', '')
-                                    if website_url.endswith('.pdf'): continue
-                                    
-                                    emails = extract_emails(website_url)
-                                    if emails:
-                                        country_results.append({
-                                            "업체명": company_name, "국가명": country, "웹사이트": website_url,
-                                            "담당자(유추)": "Cosmetics Purchasing Team", "이메일": emails[0], "수집상태": "대기중"
-                                        })
-                                    time.sleep(1) 
-                        except Exception as e:
-                            status_text.warning(f"검색 중 일시적 오류 발생: {e}")
-                
-                # 수집된 데이터를 기억 장치(session_state)에 개별 저장
-                if country_results:
-                    df = pd.DataFrame(country_results)
-                    df = df.drop_duplicates(subset=['이메일'], keep='first')
-                    
-                    output = BytesIO()
-                    with pd.ExcelWriter(output, engine='openpyxl') as writer:
-                        df.to_excel(writer, index=False)
-                    
-                    st.session_state.gathered_files[country] = {
-                        "count": len(df),
-                        "data": output.getvalue()
-                    }
-                    status_text.success(f"🎉 {country} 수집 및 저장 완료! (순수 이메일 {len(df)}건)")
-                else:
-                    if not api_limit_hit:
-                        status_text.warning(f"⚠️ {country}에서 수집된 이메일이 없습니다.")
-                
-                st.divider()
+                            response = requests.get(url, headers=headers, timeout=5)
+                            soup = BeautifulSoup(response.text, 'html.parser')
+                            email_pattern = r'[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}'
+                            found_emails = re.findall(email_pattern, soup.get_text(separator=' '))
+                            for link in soup.find_all('a'):
+                                href = link.get('href')
+                                if href and href.startswith('mailto:'):
+                                    found_emails.append(href.replace('mailto:', '').split('?')[0])
+                            valid_emails = {e.lower() for e in found_emails if not e.endswith(('.png', '.jpg', '.gif'))}
+                            return list(valid_emails)
+                        except:
+                            return []
 
-    # 기억 장치에 저장된 엑셀 파일 다운로드 버튼 노출 (새로고침 방어)
+                    api_limit_hit = False
+                    for query in search_queries:
+                        if api_limit_hit: break
+                        
+                        status_text.info(f"🔍 검색 중: {query} ...")
+                        for page in range(page_count):
+                            offset = page * 10
+                            api_url = f"https://serpapi.com/search.json?engine=google&q={query}&start={offset}&api_key={serp_api_key}"
+                            try:
+                                response = requests.get(api_url).json()
+                                
+                                if 'error' in response:
+                                    st.error(f"🚨 API 에러 발생: {response['error']}")
+                                    api_limit_hit = True
+                                    break
+                                    
+                                if 'organic_results' in response:
+                                    for item in response['organic_results']:
+                                        company_name = item.get('title', '이름 없음')
+                                        website_url = item.get('link', '')
+                                        if website_url.endswith('.pdf'): continue
+                                        
+                                        emails = extract_emails(website_url)
+                                        if emails:
+                                            # 발송 탭(탭 2)과의 연동을 위해 컬럼명은 '국가명'으로 유지하되, 내용은 '지역(location)'이 들어갑니다.
+                                            location_results.append({
+                                                "업체명": company_name, "국가명": location, "웹사이트": website_url,
+                                                "담당자(유추)": "Cosmetics Purchasing Team", "이메일": emails[0], "수집상태": "대기중"
+                                            })
+                                        time.sleep(1) 
+                            except Exception as e:
+                                status_text.warning(f"검색 중 일시적 오류 발생: {e}")
+                    
+                    # 💡 수집 완료된 데이터를 기억 장치(session_state)에 저장
+                    if location_results:
+                        df = pd.DataFrame(location_results)
+                        df = df.drop_duplicates(subset=['이메일'], keep='first')
+                        
+                        output = BytesIO()
+                        with pd.ExcelWriter(output, engine='openpyxl') as writer:
+                            df.to_excel(writer, index=False)
+                        
+                        st.session_state.gathered_files[location] = {
+                            "count": len(df),
+                            "data": output.getvalue()
+                        }
+                        status_text.success(f"🎉 {location} 수집 및 저장 완료! (순수 이메일 {len(df)}건)")
+                    else:
+                        if not api_limit_hit:
+                            status_text.warning(f"⚠️ {location}에서 수집된 이메일이 없습니다.")
+                    
+                    st.divider()
+
+    # 💡 기억 장치에 저장된 엑셀 파일 다운로드 버튼 노출 (새로고침 방어)
     if st.session_state.gathered_files:
-        st.subheader("📥 수집 완료된 국가별 엑셀 다운로드")
-        for country, file_info in st.session_state.gathered_files.items():
+        st.subheader("📥 수집 완료된 지역별 엑셀 다운로드")
+        for location, file_info in st.session_state.gathered_files.items():
+            # 파일명에 들어갈 수 없는 특수기호(쉼표 등)를 안전하게 치환
+            safe_loc_name = location.replace(' ', '_').replace(',', '')
             st.download_button(
-                label=f"📥 {country} 엑셀 파일 다운로드 ({file_info['count']}건)", 
+                label=f"📥 {location} 엑셀 파일 다운로드 ({file_info['count']}건)", 
                 data=file_info['data'],
-                file_name=f"Zenifix_Buyers_{country}_{datetime.now().strftime('%Y%m%d')}.xlsx",
+                file_name=f"Zenifix_Buyers_{safe_loc_name}_{datetime.now().strftime('%Y%m%d')}.xlsx",
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                key=f"download_btn_{country}"
+                key=f"download_btn_{safe_loc_name}"
             )
 
 
