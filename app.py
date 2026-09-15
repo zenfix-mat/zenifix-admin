@@ -493,25 +493,27 @@ with tab2:
     
     # 1. DB에서 데이터 불러오기 버튼
     if st.button("🔄 로봇이 수집한 최신 바이어 DB 불러오기"):
-        if db_connected:
-            try:
-                gather_result_sheet = gc.open("zenifix_DB").worksheet("수집결과")
-                result_records = gather_result_sheet.get_all_values() # 👈 get_all_records() 대신 get_all_values() 사용
-                
-                # 💡 [핵심 패치] 데이터가 '헤더(1줄)'를 제외하고 실제로 존재하는지 확인합니다.
-                if result_records and len(result_records) > 1:
-                    # 첫 줄(헤더)을 컬럼명으로 삼아 DataFrame 생성
-                    st.session_state.loaded_buyers_df = pd.DataFrame(result_records[1:], columns=result_records[0])
-                    st.success(f"🎉 총 {len(st.session_state.loaded_buyers_df)}명의 바이어 데이터를 성공적으로 불러왔습니다!")
-                else:
-                    # 💡 데이터가 비어있을 때 뜨는 친절하고 세련된 안내 메시지
-                    st.info("📭 아직 로봇이 수집을 완료한 바이어 데이터가 없습니다. [탭 1]에서 먼저 수집 스케줄을 예약해 주세요.")
-                    if 'loaded_buyers_df' in st.session_state:
-                        del st.session_state.loaded_buyers_df
-            except Exception as e:
-                st.error(f"수집결과 데이터를 불러오는 중 일시적인 오류가 발생했습니다: {e}")
+        # 💡 [핵심 패치] 이메일과 비밀번호가 입력되지 않았을 경우 얼럿(경고창) 띄우기
+        if not login_email or not app_password:
+            st.warning("🚨 먼저 상단의 '개인 로그인 이메일'과 '16자리 앱 비밀번호'를 입력해 주세요.")
         else:
-            st.error("구글 DB와 연결되어 있지 않습니다.")
+            # 로그인 정보가 모두 입력되었을 때만 아래 리스트 불러오기 실행
+            if db_connected:
+                try:
+                    gather_result_sheet = gc.open("zenifix_DB").worksheet("수집결과")
+                    result_records = gather_result_sheet.get_all_values() 
+                    
+                    if result_records and len(result_records) > 1:
+                        st.session_state.loaded_buyers_df = pd.DataFrame(result_records[1:], columns=result_records[0])
+                        st.success(f"🎉 총 {len(st.session_state.loaded_buyers_df)}명의 바이어 데이터를 성공적으로 불러왔습니다!")
+                    else:
+                        st.info("📭 아직 로봇이 수집을 완료한 바이어 데이터가 없습니다. [탭 1]에서 먼저 수집 스케줄을 예약해 주세요.")
+                        if 'loaded_buyers_df' in st.session_state:
+                            del st.session_state.loaded_buyers_df
+                except Exception as e:
+                    st.error(f"수집결과 데이터를 불러오는 중 일시적인 오류가 발생했습니다: {e}")
+            else:
+                st.error("구글 DB와 연결되어 있지 않습니다.")
 
     # 2. 데이터 에디터 (휴먼 검수 및 선택)
     if 'loaded_buyers_df' in st.session_state and not st.session_state.loaded_buyers_df.empty:
