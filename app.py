@@ -552,6 +552,9 @@ with tab2:
         
         col_btn1, col_btn2, col_btn3 = st.columns(3)
         
+        # ----------------------------------------------------
+        # 버튼 1: 내 메일로 테스트 발송
+        # ----------------------------------------------------
         with col_btn1:
             if st.button("🧪 내 메일로 테스트 1건 발송", use_container_width=True):
                 if not login_email or not app_password:
@@ -573,6 +576,9 @@ with tab2:
                     except Exception as e:
                         st.error(f"테스트 발송 실패: {e}")
 
+        # ----------------------------------------------------
+        # 버튼 2: 즉시 대량 발송 (스케줄링 없이 바로 쏘기)
+        # ----------------------------------------------------
         with col_btn2:
             if st.button("⚡ 즉시 대량 발송 시작 (예약 안 함)", use_container_width=True):
                 if final_df.empty:
@@ -616,15 +622,6 @@ with tab2:
                                 server.send_message(msg)
                                 success_count += 1
                                 current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                                final_html = f"<html><body>{edited_html_body}</body></html>"
-                                
-                                try:
-                                    # 💡 [핵심 패치 2] str(scheduled_date) 대신 시간을 포함한 scheduled_datetime을 시트에 씁니다!
-                                    queue_sheet.append_row([
-                                        scheduled_datetime, buyer_email, buyer_country, buyer_website, 
-                                        edited_subject, final_html, "대기중", target_type, current_time
-                                    ])
-                                    success_count += 1
                                 
                                 if db_connected:
                                     try:
@@ -650,7 +647,9 @@ with tab2:
                     except Exception as e:
                         st.error(f"🚨 이메일 로그인 실패. 오류: {e}")
 
-
+        # ----------------------------------------------------
+        # 버튼 3: 날짜/시간 지정 예약 등록
+        # ----------------------------------------------------
         with col_btn3:
             if st.button("📅 지정한 날짜/시간으로 예약 등록", type="primary", use_container_width=True):
                 if final_df.empty:
@@ -690,7 +689,6 @@ with tab2:
                         current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
                         final_html = f"<html><body>{edited_html_body}</body></html>"
                         
-                        # 👇 짝꿍(try - except)이 완벽하게 맞춰진 안전한 코드입니다.
                         try:
                             queue_sheet.append_row([
                                 scheduled_datetime, buyer_email, buyer_country, buyer_website, 
