@@ -76,6 +76,10 @@ for row_num, row_data in pending_tasks:
     keyword = str(row_data.get("검색키워드", ""))
     page_count = int(row_data.get("페이지수", 2))
 
+    # 👇 [새로 추가하는 2줄] 시트의 상태를 '대기중'에서 '진행중'으로 바꿉니다!
+    queue_sheet.update_cell(row_num, 5, "진행중")
+    time.sleep(1)
+
     print(f"➡️ [{target_loc}] 지역 데이터 수집 시작...")
 
     # 입력된 텍스트(예: Paris, France)를 보고 언어 코드 찾기
