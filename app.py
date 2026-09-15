@@ -573,7 +573,7 @@ with tab2:
                     st.info(f"총 {len(final_df)}명의 대상에게 즉시 발송을 시작합니다...")
                     progress_bar = st.progress(0)
                     status_text = st.empty()
-
+                    
                     try:
                         server = smtplib.SMTP('smtp.gmail.com', 587)
                         server.starttls()
@@ -627,7 +627,7 @@ with tab2:
                                 
                         server.quit()
                         st.success(f"🎉 총 {success_count}건 실시간 발송 완료! (수신거부 스킵: {skip_count}명)")
-
+                        
                     except Exception as e:
                         st.error(f"🚨 이메일 로그인 실패. 오류: {e}")
 
