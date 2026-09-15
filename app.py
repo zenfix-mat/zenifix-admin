@@ -403,6 +403,9 @@ with tab2:
         
         if db_connected:
             try:
+                # 💡 [핵심 패치] 저장하기 직전에 '템플릿관리' 시트와의 연결선을 다시 만들어줍니다!
+                template_sheet = gc.open("zenifix_DB").worksheet("템플릿관리")
+                
                 records = template_sheet.get_all_values()
                 found_row_idx = -1
                 for i, row in enumerate(records):
@@ -415,6 +418,9 @@ with tab2:
                     template_sheet.update_cell(found_row_idx, 4, edited_html_body)
                 else:
                     template_sheet.append_row([target_type, selected_language, edited_subject, edited_html_body])
+                
+                # 💡 수정한 최신 데이터를 보관함(Session State)에도 업데이트해 줍니다.
+                st.session_state.template_records = template_sheet.get_all_values()
                 
                 st.toast("🎉 템플릿이 구글 시트에 영구 저장되었습니다!")
             except Exception as e:
