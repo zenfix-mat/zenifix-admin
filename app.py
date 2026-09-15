@@ -24,10 +24,10 @@ st.set_page_config(page_title="zenifix Global Admin", page_icon="🚀", layout="
 st.title("🚀 zenifix Global B2B Admin Dashboard")
 
 # ==========================================
-# [DB 연동] 구글 스프레드시트 초기 설정 (+ 수신거부 & 예약 탭 관리)
+# [DB 연동] 구글 스프레드시트 초기 설정
 # ==========================================
 db_connected = False
-blacklist_emails = [] # 수신거부 리스트 보관용
+blacklist_emails = [] 
 
 try:
     scopes = ["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive"]
@@ -38,16 +38,16 @@ try:
     db_sheet = gc.open("zenifix_DB").sheet1
     db_connected = True
     
-    # 2. '수신거부' 탭 세팅
+    # 2. 수신거부 탭
     try:
         blacklist_sheet = gc.open("zenifix_DB").worksheet("수신거부")
         blacklist_emails = blacklist_sheet.col_values(1) 
     except:
         blacklist_sheet = gc.open("zenifix_DB").add_worksheet(title="수신거부", rows="1000", cols="2")
         blacklist_sheet.update_cell(1, 1, "이메일")
-        blacklist_sheet.update_cell(1, 2, "수신거부일시")
+        blacklist_sheet.update_cell(1, 2, "등록일시")
 
-    # 3. 24시간 '발송예약(Queue)' 탭 세팅
+    # 3. 발송예약 탭
     try:
         queue_sheet = gc.open("zenifix_DB").worksheet("발송예약")
     except:
@@ -55,44 +55,81 @@ try:
         headers = ["예약일", "이메일", "국가명", "웹사이트", "제목", "본문", "상태", "타깃유형", "등록일시"]
         for i, h in enumerate(headers, 1):
             queue_sheet.update_cell(1, i, h)
-            
+
+    # 4. 템플릿관리 탭 (영구 저장소)
+    try:
+        template_sheet = gc.open("zenifix_DB").worksheet("템플릿관리")
+        template_records = template_sheet.get_all_values()
+    except:
+        template_sheet = gc.open("zenifix_DB").add_worksheet(title="템플릿관리", rows="100", cols="4")
+        template_sheet.append_row(["타깃유형", "언어", "제목", "본문"])
+        template_records = [["타깃유형", "언어", "제목", "본문"]]
+
 except Exception as e:
     st.sidebar.error(f"구글 DB 연결 실패: {e}")
+    st.sidebar.warning("발송 이력 및 템플릿 저장이 작동하지 않을 수 있습니다.")
+
 
 # ==========================================
-# [영구 템플릿] 제목과 내용을 세트로 관리 (기본 제공 틀)
+# [영구 템플릿] 구글 시트에서 템플릿 불러오기
 # ==========================================
 if 'email_templates' not in st.session_state:
-    st.session_state.email_templates = {
-        "바이어 (유통/입점)": {
-            "English": {
-                "subject": "[Partnership Proposal] Premium K-Beauty: 580,000ppm High-Content Skincare by zenifix",
-                "body": """<p>Dear Cosmetics Purchasing Team,</p>
+    templates = {}
+    
+    # DB에 저장된 템플릿이 있으면 불러오기
+    if db_connected and len(template_records) > 1:
+        for row in template_records[1:]:
+            if len(row) >= 4:
+                tgt, lng, sub, bdy = row[0], row[1], row[2], row[3]
+                if tgt not in templates:
+                    templates[tgt] = {}
+                templates[tgt][lng] = {"subject": sub, "body": bdy}
+    else:
+        # DB가 비어있으면 기본 템플릿 세팅 및 DB에 최초 기록
+        default_body = """<p>Dear Cosmetics Purchasing Team,</p>
 <p>I hope this email finds you well.</p>
 <p>I am writing from zenifix, a premium K-Beauty skincare brand based in Seoul. We would like to politely request your team's review of zenifix products for a potential retail partnership in your market.</p>
-<p>We offer 14 core SKUs across two highly effective collections—our Noni Line (7 SKUs) and Ginkgo Line (7 SKUs). What truly sets zenifix apart is our exceptional ingredient concentration. Our formulations feature natural Noni and Ginkgo extracts <strong>ranging from 21% to 58% (210,000 ppm – 580,000 ppm)</strong> depending on the SKU. We differentiate our products through this uncompromising raw material content rather than generic marketing claims.</p>"""
-            }
-        },
-        "마케팅 에이전시 (협업)": {
-            "태국어": {
-                "subject": "[ข้อเสนอความร่วมมือ] สกินแคร์ K-Beauty พรีเมียมจาก zenifix",
-                "body": "<p>เรียน ทีมงานการตลาด,</p>\n<p>เราคือ zenifix แบรนด์สกินแคร์ระดับพรีเมียมจากโซล ประเทศเกาหลีใต้...</p>"
+<p>We offer 14 core SKUs across two highly effective collections—our Noni Line (7 SKUs) and Ginkgo Line (7 SKUs). What truly sets zenifix apart is our exceptional ingredient concentration. Our formulations feature natural Noni and Ginkgo extracts <strong>ranging from 21% to 58% (210,000 ppm – 580,000 ppm)</strong> depending on the SKU. We differentiate our products through this uncompromising raw material content rather than generic marketing claims.</p>
+<p>zenifix 브랜드를 참고하실 수 있도록 아래에 간단한 이미지를 첨부하였습니다:</p>
+<p><img src="https://zenifix.net/img/zenifix_BrandDeck_main.png" alt="zenifix Brand Overview" style="max-width: 800px; width: 100%; height: auto;"></p>
+<p>To explore our complete Brand Deck, including full product details, current global sales channels, and our active SNS presence, please visit our official website:<br>
+👉 <strong>Official Brand Deck: <a href="https://zenifix.net">https://zenifix.net</a></strong></p>
+<p>If your team finds our brand suitable for your market after the initial review, please reply to this email. We would be happy to discuss further possibilities and details.</p>
+<p>Thank you for your time and consideration.</p>
+<p>Best regards,<br>
+Global Partnership Team<br>
+zenifix<br>
+zenifix@wellsfnd.com</p>
+<p><small><i>*If you do not wish to receive further emails, please reply with 'Unsubscribe'.</i></small></p>"""
+        
+        templates = {
+            "바이어 (유통/입점)": {
+                "English": {
+                    "subject": "[Partnership Proposal] Premium K-Beauty: 580,000ppm Skincare by zenifix",
+                    "body": default_body
+                }
             }
         }
-    }
-    
-# 탭(Tab)으로 수집 화면과 발송 화면 분리
+        # 최초 기본 템플릿을 구글 시트에 자동 기록
+        if db_connected:
+            template_sheet.append_row(["바이어 (유통/입점)", "English", templates["바이어 (유통/입점)"]["English"]["subject"], default_body])
+
+    st.session_state.email_templates = templates
+
+
+# 탭 분리
 tab1, tab2, tab3 = st.tabs(["📥 1. 이메일 수집 (Gathering)", "📧 2. 자동 발송 (Sending)", "📊 3. 데이터 대시보드 (통계)"])
 
 # ==========================================
-# [탭 1] 글로벌 이메일 수집
+# [탭 1] 글로벌 이메일 수집 (다중 국가 & 영문+현지어 듀얼 검색 복구)
 # ==========================================
 with tab1:
     st.header("글로벌 이메일 자동 수집기")
     
     if 'gathered_files' not in st.session_state:
         st.session_state.gathered_files = {}
-
+        
+    # 국가별 언어 코드 매핑
     COUNTRY_LANG_MAP = {
         "USA": "en", "UK": "en", "Australia": "en", "Canada": "en",
         "Ireland": "en", "New Zealand": "en", "India": "en", "Philippines": "en",
@@ -105,17 +142,16 @@ with tab1:
     col1, col2 = st.columns(2)
     with col1:
         serp_api_key = st.text_input("SerpApi Key (필수)", type="password")
-        countries_input = st.text_input("타깃 국가 (쉼표로 구분하여 복수 입력)", value="USA, Canada, Australia")
-        selected_countries = [c.strip() for c in countries_input.split(",") if c.strip()]
-        
+        selected_countries = st.multiselect("타깃 국가 (복수 선택 가능)", list(COUNTRY_LANG_MAP.keys()), default=["USA"])
     with col2:
-        search_keyword = st.text_input("검색 키워드 (영문+현지어 듀얼 검색됨)", value="K-beauty cosmetics distributor contact")
+        search_keyword = st.text_input("검색 키워드 (영문+현지어 듀얼 검색됨)", value="korean cosmetics distributor contact")
         page_count = st.number_input("검색어당 페이지 수", min_value=1, max_value=10, value=2)
 
     if st.button("🔍 이메일 수집 시작", type="primary"):
         if not serp_api_key or not selected_countries:
-            st.error("SerpApi Key와 타깃 국가를 최소 1개 이상 입력해 주세요!")
+            st.error("SerpApi Key와 타깃 국가를 최소 1개 이상 선택해 주세요!")
         else:
+            # 새로운 수집 시작 시 기억 장치 초기화
             st.session_state.gathered_files = {}
             
             for country in selected_countries:
@@ -125,6 +161,7 @@ with tab1:
                 
                 lang_code = COUNTRY_LANG_MAP.get(country, "en")
                 
+                # 현지어 번역 로직
                 try:
                     if lang_code != "en":
                         translated_keyword = GoogleTranslator(source='auto', target=lang_code).translate(search_keyword)
@@ -133,6 +170,7 @@ with tab1:
                 except:
                     translated_keyword = search_keyword 
                 
+                # 영어 원본과 현지어 번역본 모두 검색 (듀얼 검색)
                 search_queries = [f"{search_keyword} {country}"]
                 if translated_keyword != search_keyword:
                     search_queries.append(f"{translated_keyword} {country}")
@@ -163,12 +201,10 @@ with tab1:
                         api_url = f"https://serpapi.com/search.json?engine=google&q={query}&start={offset}&api_key={serp_api_key}"
                         try:
                             response = requests.get(api_url).json()
-                            
                             if 'error' in response:
                                 st.error(f"🚨 API 에러 발생: {response['error']}")
                                 api_limit_hit = True
                                 break
-                                
                             if 'organic_results' in response:
                                 for item in response['organic_results']:
                                     company_name = item.get('title', '이름 없음')
@@ -185,6 +221,7 @@ with tab1:
                         except Exception as e:
                             status_text.warning(f"검색 중 일시적 오류 발생: {e}")
                 
+                # 수집된 데이터를 기억 장치(session_state)에 개별 저장
                 if country_results:
                     df = pd.DataFrame(country_results)
                     df = df.drop_duplicates(subset=['이메일'], keep='first')
@@ -204,6 +241,7 @@ with tab1:
                 
                 st.divider()
 
+    # 기억 장치에 저장된 엑셀 파일 다운로드 버튼 노출 (새로고침 방어)
     if st.session_state.gathered_files:
         st.subheader("📥 수집 완료된 국가별 엑셀 다운로드")
         for country, file_info in st.session_state.gathered_files.items():
@@ -217,32 +255,24 @@ with tab1:
 
 
 # ==========================================
-# [탭 2] 글로벌 이메일 자동 발송기 (예약 & 즉시 발송 동시 지원)
+# [탭 2] 글로벌 이메일 자동 발송기
 # ==========================================
 with tab2:
     st.header("글로벌 이메일 자동 발송기")
     
     if db_connected:
-        st.success("✅ 구글 스프레드시트(zenifix_DB) 연동 완료! 발송 이력 및 수신거부 목록이 자동 연동됩니다.")
+        st.success("✅ 구글 스프레드시트 연동 완료! 템플릿 및 발송 이력이 자동 관리됩니다.")
 
     st.markdown("""
     <style>
-    button[kind="primary"] {
-        background-color: #03C75A !important;
-        border-color: #03C75A !important;
-        color: white !important;
-    }
-    button[kind="primary"]:hover {
-        background-color: #028a3f !important;
-        border-color: #028a3f !important;
-    }
+    button[kind="primary"] { background-color: #03C75A !important; border-color: #03C75A !important; color: white !important; }
+    button[kind="primary"]:hover { background-color: #028a3f !important; border-color: #028a3f !important; }
     </style>
     """, unsafe_allow_html=True)
+
+    # --- 템플릿 및 발송 옵션 설정 ---
+    st.subheader("🎯 템플릿 선택 및 관리")
     
-    # ==============================================================
-    # [수정] 템플릿 설정 및 이메일 편집을 상단으로 올렸습니다. (일반 사용자도 편하게 볼 수 있도록)
-    # ==============================================================
-    st.subheader("🎯 템플릿 및 발송 옵션 설정")
     with st.expander("➕ 새로운 타깃 그룹 및 언어 템플릿 추가하기"):
         new_target = st.text_input("새로운 타깃 그룹 이름 (예: VIP 바이어)")
         new_lang = st.text_input("새로운 발송 언어 (예: Spanish)")
@@ -250,10 +280,15 @@ with tab2:
             if new_target and new_lang:
                 if new_target not in st.session_state.email_templates:
                     st.session_state.email_templates[new_target] = {}
-                st.session_state.email_templates[new_target][new_lang] = {
-                    "subject": f"[{new_target}] Partnership with zenifix",
-                    "body": f"<p>Dear {new_target} Team,</p>\n<p>내용을 입력하세요.</p>"
-                }
+                new_subject = f"[{new_target}] Partnership with zenifix"
+                new_body = f"<p>Dear {new_target} Team,</p>\n<p>내용을 입력하세요.</p>"
+                
+                st.session_state.email_templates[new_target][new_lang] = {"subject": new_subject, "body": new_body}
+                
+                # DB에도 새 템플릿 추가
+                if db_connected:
+                    template_sheet.append_row([new_target, new_lang, new_subject, new_body])
+                
                 st.success(f"'{new_target}' - '{new_lang}' 추가 완료!")
                 st.rerun()
 
@@ -264,39 +299,45 @@ with tab2:
         available_languages = list(st.session_state.email_templates[target_type].keys())
         selected_language = st.selectbox("2. 발송 언어를 선택하세요", available_languages)
 
-    use_image = st.radio("3. 본문 이미지 포함 여부", ["이미지 포함 (추천)", "텍스트만 발송 (이미지 없이)"], horizontal=True)
-    img_url = ""
-    if use_image == "이미지 포함 (추천)":
-        img_url = st.text_input("이미지 URL 주소를 입력하세요", value="https://zenifix.net/img/zenifix_BrandDeck_main.png")
-    
-    delay_seconds = st.slider("4. 메일 발송 간격 조절 (스팸 방지용 대기 시간)", min_value=10, max_value=300, value=180, step=10)
-
     st.divider()
 
+    # --- 이메일 편집기 ---
     st.subheader("📝 이메일 미리보기 및 직접 편집")
-    base_subject = st.session_state.email_templates[target_type][selected_language]["subject"]
-    base_content = st.session_state.email_templates[target_type][selected_language]["body"]
+    st.info("💡 내용 수정 후 아래의 '영구 저장' 버튼을 누르시면 다음에 접속해도 이 내용이 그대로 유지됩니다.")
     
-    # 송신자 이메일 주소를 미리보기 렌더링용으로 임시 설정 (이후 관리자 입력창에서 받아옴)
-    preview_sender = "zenifix@wellsfnd.com" 
+    current_subject = st.session_state.email_templates[target_type][selected_language]["subject"]
+    current_body = st.session_state.email_templates[target_type][selected_language]["body"]
     
-    image_content = f'\n<p>zenifix 브랜드를 참고하실 수 있도록 아래에 간단한 이미지를 첨부하였습니다:</p>\n<p><img src="{img_url}" alt="zenifix Brand Overview" style="max-width: 800px; width: 100%; height: auto;"></p>\n' if (use_image == "이미지 포함 (추천)" and img_url) else ""
-    
-    footer_content = f"""
-<p>To explore our complete Brand Deck, including full product details, current global sales channels, and our active SNS presence, please visit our official website:<br>
-👉 <strong>Official Brand Deck: <a href="https://zenifix.net">https://zenifix.net</a></strong></p>
-<p>If your team finds our brand suitable for your market after the initial review, please reply to this email. We would be happy to discuss further possibilities and details.</p>
-<p>Thank you for your time and consideration.</p>
-<p>Best regards,<br>
-Global Partnership Team<br>
-zenifix<br>
-{preview_sender}</p>
-<p><small><i>*If you do not wish to receive further emails, please reply with 'Unsubscribe'.</i></small></p>
-"""
-    initial_html = base_content + image_content + footer_content
-    
-    edited_subject = st.text_input("📝 이메일 제목 (발송 전 자유롭게 수정 가능)", value=base_subject)
-    edited_html_body = st.text_area("🔧 이메일 본문 (HTML 태그 및 텍스트 자유 수정)", value=initial_html, height=300)
+    edited_subject = st.text_input("📝 이메일 제목 (수정 가능)", value=current_subject)
+    edited_html_body = st.text_area("🔧 이메일 본문 (HTML 태그 통째로 자유 수정)", value=current_body, height=350)
+
+    # 👇 [핵심 기능] 템플릿 영구 저장 버튼
+    if st.button("💾 현재 수정한 제목과 본문을 '현재 템플릿'으로 영구 저장", type="primary", use_container_width=True):
+        # 1. 세션 스테이트(화면) 업데이트
+        st.session_state.email_templates[target_type][selected_language]["subject"] = edited_subject
+        st.session_state.email_templates[target_type][selected_language]["body"] = edited_html_body
+        
+        # 2. 구글 시트(DB) 업데이트
+        if db_connected:
+            try:
+                records = template_sheet.get_all_values()
+                found_row_idx = -1
+                for i, row in enumerate(records):
+                    if i > 0 and row[0] == target_type and row[1] == selected_language:
+                        found_row_idx = i + 1 # gspread는 1번부터 인덱스 시작
+                        break
+                
+                if found_row_idx != -1:
+                    template_sheet.update_cell(found_row_idx, 3, edited_subject)
+                    template_sheet.update_cell(found_row_idx, 4, edited_html_body)
+                else:
+                    template_sheet.append_row([target_type, selected_language, edited_subject, edited_html_body])
+                
+                st.toast("🎉 템플릿이 구글 시트에 영구 저장되었습니다!")
+            except Exception as e:
+                st.error(f"DB 저장 중 오류: {e}")
+        else:
+            st.warning("DB 연결이 끊어져 임시로만 저장되었습니다.")
 
     st.markdown("##### 👁️ 실제 수신자가 받아볼 이메일 미리보기")
     with st.container(border=True):
@@ -305,10 +346,8 @@ zenifix<br>
         components.html(edited_html_body, height=400, scrolling=True)
 
     st.divider()
-    
-    # ==============================================================
-    # [수정] 민감한 관리자 계정 설정 및 수신거부 관리를 하단으로 내렸습니다.
-    # ==============================================================
+
+    # --- 관리자 계정 설정 및 발송 스케줄링 (하단 배치) ---
     st.subheader("⚙️ 관리자 계정 설정 및 발송 스케줄링")
     st.info("이메일 발송 권한 및 스케줄링을 설정하는 보안 영역입니다.")
     
@@ -357,20 +396,22 @@ zenifix<br>
     
     st.markdown("<br>", unsafe_allow_html=True)
     
-    # --- 엑셀 파일 및 발송 일자(달력) 선택 ---
+    # 발송 예약 입력 영역
     col_date, col_file = st.columns(2)
     with col_date:
         scheduled_date = st.date_input("📅 달력에서 예약 발송 일자를 선택하세요", min_value=datetime.today().date())
     with col_file:
         uploaded_file = st.file_uploader("📥 수집한 바이어 '엑셀 파일'을 올려주세요.", type=["xlsx"])
     
+    delay_seconds = st.slider("메일 발송 간격 조절 (즉시 발송 시 적용, 단위: 초)", min_value=10, max_value=300, value=180, step=10)
+    
     st.markdown("<br>", unsafe_allow_html=True)
     
-    # --- 발송 컨트롤 버튼들 (테스트 / 즉시 발송 / 예약 등록) ---
+    # 발송 컨트롤 버튼들
     col_btn1, col_btn2, col_btn3 = st.columns(3)
     
     with col_btn1:
-        if st.button("🧪 내 메일로 테스트 1건 발송해 보기", use_container_width=True):
+        if st.button("🧪 내 메일로 테스트 1건 발송", use_container_width=True):
             if not login_email or not app_password:
                 st.warning("로그인 이메일과 앱 비밀번호를 먼저 입력해 주세요.")
             else:
@@ -382,12 +423,8 @@ zenifix<br>
                     msg['From'] = f"zenifix Team <{sender_email}>"
                     msg['To'] = login_email  
                     msg['Subject'] = edited_subject
-                    
-                    # 렌더링용 임시 이메일 주소를 사용자가 설정한 발송자 메일(sender_email)로 교체
-                    final_html_body = edited_html_body.replace(preview_sender, sender_email)
-                    final_html = f"<html><body>{final_html_body}</body></html>"
+                    final_html = f"<html><body>{edited_html_body}</body></html>"
                     msg.attach(MIMEText(final_html, 'html'))
-                    
                     server.send_message(msg)
                     server.quit()
                     st.toast("✅ 테스트 메일이 성공적으로 발송되었습니다!")
@@ -429,8 +466,7 @@ zenifix<br>
                         msg['Subject'] = edited_subject
                         msg.add_header('reply-to', sender_email)
                         
-                        final_html_body = edited_html_body.replace(preview_sender, sender_email)
-                        final_html = f"<html><body>{final_html_body}</body></html>"
+                        final_html = f"<html><body>{edited_html_body}</body></html>"
                         msg.attach(MIMEText(final_html, 'html'))
                         
                         try:
@@ -440,7 +476,6 @@ zenifix<br>
                             
                             if db_connected:
                                 try:
-                                    # 메인 발송 이력 탭에 즉시 기록
                                     db_sheet.append_row([
                                         current_time, buyer_email, buyer_country, 
                                         buyer_website, target_type, selected_language, "성공"
@@ -453,7 +488,6 @@ zenifix<br>
                             status_text.text(f"❌ 발송 실패: {buyer_email}")
                         
                         progress_bar.progress((index + 1) / len(df))
-                        
                         if index < len(df) - 1:
                             status_text.text(f"⏳ 스팸 방지를 위해 {delay_seconds}초 대기 중...")
                             time.sleep(delay_seconds)
@@ -465,14 +499,14 @@ zenifix<br>
                     st.error(f"🚨 이메일 로그인 실패. 오류: {e}")
 
     with col_btn3:
-        if st.button("📅 지정한 날짜로 예약 발송 등록하기", type="primary", use_container_width=True):
+        if st.button("📅 지정한 날짜로 예약 등록", type="primary", use_container_width=True):
             if not uploaded_file:
                 st.error("엑셀 파일을 먼저 올려주세요!")
             elif not db_connected:
                 st.error("구글 DB와 연결되지 않아 예약을 등록할 수 없습니다.")
             else:
                 df = pd.read_excel(uploaded_file)
-                st.info(f"총 {len(df)}명의 대상을 {scheduled_date} 발송 큐(Queue)에 등록합니다...")
+                st.info(f"총 {len(df)}명의 대상을 {scheduled_date} 예약 대기열에 등록합니다...")
                 progress_bar = st.progress(0)
                 status_text = st.empty()
                 
@@ -489,27 +523,22 @@ zenifix<br>
                     buyer_country = str(row.get('국가명', '미확인'))
                     buyer_website = str(row.get('웹사이트', '미확인'))
                     
-                    # 1. 수신거부 필터링
                     if buyer_email in blacklist_emails:
                         status_text.text(f"🚫 수신거부 대상 제외됨: {buyer_email}")
                         skip_count += 1
                         progress_bar.progress((index + 1) / len(df))
                         continue
                         
-                    # 2. 이미 발송예약 탭에 들어있는 이메일 중복 필터링
                     if buyer_email in existing_queue_emails:
                         status_text.text(f"⚠️ 이미 예약된 바이어 제외됨: {buyer_email}")
                         skip_count += 1
                         progress_bar.progress((index + 1) / len(df))
                         continue
                     
-                    # 3. 구글 시트에 넣을 준비 (편집한 본문을 그대로 DB에 통째로 저장)
                     current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                    final_html_body = edited_html_body.replace(preview_sender, sender_email)
-                    final_html = f"<html><body>{final_html_body}</body></html>"
+                    final_html = f"<html><body>{edited_html_body}</body></html>"
                     
                     try:
-                        # 발송(smtplib) 대신 구글 시트 '발송예약' 탭에 정보 저장하기
                         queue_sheet.append_row([
                             str(scheduled_date), buyer_email, buyer_country, buyer_website, 
                             edited_subject, final_html, "대기중", target_type, current_time
@@ -520,9 +549,9 @@ zenifix<br>
                         status_text.text(f"❌ DB 기록 실패: {e}")
                     
                     progress_bar.progress((index + 1) / len(df))
-                    time.sleep(1.5) # API 과부하 방지
+                    time.sleep(1.5) 
                         
-                st.success(f"🎉 총 {success_count}건 예약 완료! (수신거부/중복 제외: {skip_count}명)\n지정하신 날짜({scheduled_date})에 로봇이 발송을 진행합니다.")
+                st.success(f"🎉 총 {success_count}건 예약 완료! (수신거부/중복 제외: {skip_count}명)")
 
     # --- 예약 현황 모니터링 대시보드 ---
     st.divider()
@@ -533,7 +562,6 @@ zenifix<br>
             queue_records = queue_sheet.get_all_records()
             if queue_records:
                 df_queue = pd.DataFrame(queue_records)
-                
                 if '상태' in df_queue.columns:
                     df_pending = df_queue[df_queue['상태'] == '대기중']
                 else:
@@ -555,12 +583,10 @@ zenifix<br>
                         display_cols = ['예약일', '국가명', '이메일', '타깃유형']
                         valid_cols = [col for col in display_cols if col in df_pending.columns]
                         st.dataframe(df_pending[valid_cols].iloc[::-1], hide_index=True, use_container_width=True)
-                        
                 else:
                     st.success("🎉 현재 대기 중인 발송 예약이 없습니다.")
             else:
                 st.markdown("아직 등록된 예약 데이터가 없습니다.")
-                
         except Exception as e:
             st.warning("대기열 정보를 불러오는 중입니다... (데이터가 비어있거나 새로고침이 필요합니다)")
 
@@ -583,7 +609,6 @@ with tab3:
         
         try:
             raw_data = db_sheet.get_all_values()
-            
             if len(raw_data) > 1:
                 df_stats = pd.DataFrame(raw_data[1:], columns=raw_data[0])
                 
