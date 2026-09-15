@@ -1,1 +1,29 @@
+name: Zenifix Gather Robot
 
+on:
+  # 매시간 정각마다(1시간 간격) 로봇이 깨어나서 시트를 확인합니다.
+  schedule:
+    - cron: '0 * * * *'
+  # 수동으로 버튼을 눌러서 켤 수 있는 옵션
+  workflow_dispatch:
+
+jobs:
+  run-gatherer:
+    runs-on: ubuntu-latest
+    steps:
+      - name: 1. 코드 가져오기
+        uses: actions/checkout@v4
+
+      - name: 2. 파이썬 설치
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+
+      - name: 3. 필요 라이브러리 설치
+        run: pip install gspread google-auth pandas requests beautifulsoup4 deep-translator openpyxl
+
+      - name: 4. 수집 스크립트 실행!
+        env:
+          GCP_SERVICE_ACCOUNT: ${{ secrets.GCP_SERVICE_ACCOUNT }}
+          SERPAPI_KEY: ${{ secrets.SERPAPI_KEY }}
+        run: python gatherer.py
