@@ -85,9 +85,10 @@ except Exception as e:
 if 'email_templates' not in st.session_state:
     templates = {}
     
-    # 1. DB에 저장된 템플릿이 있으면 시트에서 우선적으로 모두 불러오기 (메인 로직)
-    if db_connected and len(template_records) > 1:
-        for row in template_records[1:]:
+    # 1. DB에 저장된 템플릿이 있으면 시트에서 우선적으로 모두 불러오기
+    # 💡 [수정 포인트] 구글 쿼터 에러 방지용 보관함(session_state)에서 데이터를 꺼내오도록 이름을 맞췄습니다!
+    if db_connected and len(st.session_state.template_records) > 1:
+        for row in st.session_state.template_records[1:]:
             if len(row) >= 4:
                 tgt, lng, sub, bdy = row[0], row[1], row[2], row[3]
                 if tgt not in templates:
@@ -95,7 +96,6 @@ if 'email_templates' not in st.session_state:
                 templates[tgt][lng] = {"subject": sub, "body": bdy}
     else:
         # 2. 구글 시트가 완전히 비어있을 때 앱 오류를 막기 위한 '최소한의 기본 틀'
-        # (기존의 길고 복잡한 HTML 하드코딩 문구는 모두 삭제했습니다.)
         templates = {
             "바이어 (유통/입점)": {
                 "English": {
@@ -106,7 +106,11 @@ if 'email_templates' not in st.session_state:
         }
         # 빈 시트에 최소 기본 틀 최초 기록
         if db_connected:
-            template_sheet.append_row(["바이어 (유통/입점)", "English", templates["바이어 (유통/입점)"]["English"]["subject"], templates["바이어 (유통/입점)"]["English"]["body"]])
+            try:
+                template_sheet = gc.open("zenifix_DB").worksheet("템플릿관리")
+                template_sheet.append_row(["바이어 (유통/입점)", "English", templates["바이어 (유통/입점)"]["English"]["subject"], templates["바이어 (유통/입점)"]["English"]["body"]])
+            except Exception as e:
+                pass
 
     st.session_state.email_templates = templates
 
