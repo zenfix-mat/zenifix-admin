@@ -535,12 +535,18 @@ with tab2:
         
         st.markdown("<br>", unsafe_allow_html=True)
 
-        # --- 발송 스케줄링 및 엑셀 기반 예약 발송 (기존과 동일하지만, 대상이 final_df로 변경됨) ---
-        col_date, col_delay = st.columns(2)
+        # --- 발송 스케줄링 및 엑셀 기반 예약 발송 ---
+        col_date, col_time = st.columns(2)
         with col_date:
-            scheduled_date = st.date_input("📅 달력에서 예약 발송 일자를 선택하세요", min_value=datetime.today().date())
-        with col_delay:
-            delay_seconds = st.slider("메일 발송 간격 조절 (즉시 발송 시 적용, 단위: 초)", min_value=10, max_value=300, value=180, step=10)
+            scheduled_date = st.date_input("📅 예약 발송 날짜", min_value=datetime.today().date())
+        with col_time:
+            # 💡 [핵심 패치 1] 시간을 지정할 수 있는 입력창을 추가합니다.
+            scheduled_time = st.time_input("⏰ 발송 시작 시간")
+        
+        # 날짜와 시간을 합쳐서 'YYYY-MM-DD HH:MM' 형태로 만듭니다.
+        scheduled_datetime = datetime.combine(scheduled_date, scheduled_time).strftime("%Y-%m-%d %H:%M")
+        
+        delay_seconds = st.slider("메일 발송 간격 조절 (즉시 발송 시 적용, 단위: 초)", min_value=10, max_value=300, value=180, step=10)
         
         st.markdown("<br>", unsafe_allow_html=True)
         
@@ -610,6 +616,15 @@ with tab2:
                                 server.send_message(msg)
                                 success_count += 1
                                 current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                                final_html = f"<html><body>{edited_html_body}</body></html>"
+                                
+                                try:
+                                    # 💡 [핵심 패치 2] str(scheduled_date) 대신 시간을 포함한 scheduled_datetime을 시트에 씁니다!
+                                    queue_sheet.append_row([
+                                        scheduled_datetime, buyer_email, buyer_country, buyer_website, 
+                                        edited_subject, final_html, "대기중", target_type, current_time
+                                    ])
+                                    success_count += 1
                                 
                                 if db_connected:
                                     try:
