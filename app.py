@@ -194,12 +194,9 @@ with tab1:
             
             if g_queue_records:
                 df_g_queue = pd.DataFrame(g_queue_records)
-                # 구글 시트의 실제 행 번호(2번째 줄부터 시작)를 매핑해 줍니다.
                 df_g_queue['시트행번호'] = df_g_queue.index + 2
                 
-                # '대기중' 또는 '진행중'인 항목
                 df_pending = df_g_queue[df_g_queue['상태'].isin(['대기중', '진행중'])].copy()
-                # '수집완료' 항목
                 df_done = df_g_queue[df_g_queue['상태'] == '수집완료'].copy()
                 
                 # -----------------------------------
@@ -208,7 +205,6 @@ with tab1:
                 st.markdown(f"**⏳ 수집 대기 및 진행 중 ({len(df_pending)}건)**")
                 if not df_pending.empty:
                     df_pending.insert(0, '삭제선택', False)
-                    # 데이터 에디터로 체크박스 UI 제공
                     edited_pending = st.data_editor(
                         df_pending[['삭제선택', '시트행번호', '예약일시', '타깃국가', '검색키워드', '상태']],
                         hide_index=True,
@@ -223,22 +219,20 @@ with tab1:
                         if st.button("🗑️ 선택한 예약 삭제하기"):
                             rows_to_delete = edited_pending[edited_pending['삭제선택'] == True]['시트행번호'].tolist()
                             if rows_to_delete:
-                                # 시트 행이 꼬이지 않도록 맨 아랫줄부터 거꾸로 지웁니다.
                                 for r in sorted(rows_to_delete, reverse=True):
-                                    gather_queue_sheet.delete_rows(r)
+                                    gather_queue_sheet.delete_rows(int(r))
                                 st.success("선택한 예약이 시트에서 삭제되었습니다.")
                                 st.rerun()
                             else:
                                 st.warning("삭제할 항목을 먼저 체크해 주세요.")
                     
                     with col_m2:
-                        # 🚀 [기능 2] 수동 즉시 수집
+                        # 🚀 [기능 2] 수동 즉시 수집 (오류 방지 패치 완료)
                         if st.button("🚀 시간이 지난 예약 '수동으로 강제 수집'"):
                             import pytz
                             kst = pytz.timezone('Asia/Seoul')
                             now_kst = datetime.now(kst).strftime("%Y-%m-%d %H:%M")
                             
-                            # 시간이 지났고 대기중인 것만 색출
                             past_due = df_pending[(df_pending['상태'] == '대기중') & (df_pending['예약일시'] <= now_kst)]
                             
                             if past_due.empty:
@@ -247,16 +241,15 @@ with tab1:
                                 gather_result_sheet = gc.open("zenifix_DB").worksheet("수집결과")
                                 
                                 for idx, row in past_due.iterrows():
-                                    r_num = row['시트행번호']
-                                    t_loc = row['타깃국가']
-                                    t_kw = row['검색키워드']
+                                    # 💡 명시적으로 int 변환 (구글 시트 에러 방지)
+                                    r_num = int(row['시트행번호'])
+                                    t_loc = str(row['타깃국가'])
+                                    t_kw = str(row['검색키워드'])
                                     p_cnt = int(row.get('페이지수', 2))
                                     
-                                    # [상태 업데이트: 대기중 -> 진행중]
                                     gather_queue_sheet.update_cell(r_num, 5, "진행중")
                                     st.toast(f"[{t_loc}] 수집 진행중...")
                                     
-                                    # 언어 변환 및 검색 (gatherer.py 로직)
                                     lang_code = "en"
                                     for c, c_code in COUNTRY_LANG_MAP.items():
                                         if c.lower() in t_loc.lower():
@@ -311,7 +304,6 @@ with tab1:
                                                     time.sleep(1)
                                             except: pass
                                             
-                                    # [상태 업데이트: 진행중 -> 수집완료]
                                     gather_queue_sheet.update_cell(r_num, 5, "수집완료")
                                     gather_queue_sheet.update_cell(r_num, 6, str(collected_cnt))
                                 
@@ -333,7 +325,7 @@ with tab1:
                         if not df_done.empty:
                             rows_to_clear = df_done['시트행번호'].tolist()
                             for r in sorted(rows_to_clear, reverse=True):
-                                gather_queue_sheet.delete_rows(r)
+                                gather_queue_sheet.delete_rows(int(r))
                             st.toast("완료된 내역이 모두 정리되었습니다.")
                             st.rerun()
 
@@ -347,7 +339,6 @@ with tab1:
                 
         except Exception as e:
             st.warning(f"대기열 정보를 불러오는 중 오류 발생: {e}")
-
 
 # ==========================================
 # [탭 2] 글로벌 콜드 메일 자동 발송 (Excel-Free & 다이렉트 DB 연동)
