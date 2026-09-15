@@ -53,18 +53,30 @@ if 'db_connected' not in st.session_state:
             template_sheet = gc.open("zenifix_DB").add_worksheet(title="템플릿관리", rows="100", cols="4")
             template_sheet.append_row(["타깃유형", "언어", "제목", "본문"])
             st.session_state.template_records = [["타깃유형", "언어", "제목", "본문"]]
-            
+
+        # 👇 [핵심 패치] 발송예약(Queue) 탭도 보관함에 꼼꼼히 추가합니다!
+        try:
+            queue_sheet = gc.open("zenifix_DB").worksheet("발송예약")
+            st.session_state.queue_sheet = queue_sheet
+        except:
+            queue_sheet = gc.open("zenifix_DB").add_worksheet(title="발송예약", rows="1000", cols="9")
+            headers = ["예약일", "이메일", "국가명", "웹사이트", "제목", "본문", "상태", "타깃유형", "등록일시"]
+            for i, h in enumerate(headers, 1):
+                queue_sheet.update_cell(1, i, h)
+            st.session_state.queue_sheet = queue_sheet
+
         st.session_state.db_connected = True
     except Exception as e:
         st.session_state.db_connected = False
         st.session_state.db_error = str(e)
 
-# 💡 타이핑이나 버튼 클릭 시 구글을 다시 찌르지 않고 보관함에서 꺼내 씁니다!
+# 💡 보관함에서 데이터를 안전하게 꺼내 씁니다.
 db_connected = st.session_state.get('db_connected', False)
 if db_connected:
     gc = st.session_state.gc
     db_sheet = st.session_state.db_sheet
     blacklist_emails = st.session_state.blacklist_emails
+    queue_sheet = st.session_state.queue_sheet  # 👈 예약 시트 정상 연동
 else:
     st.sidebar.error(f"구글 DB 연결 실패: {st.session_state.get('db_error', '알 수 없는 오류')}")
     st.sidebar.warning("발송 이력이 저장되지 않을 수 있습니다.")
