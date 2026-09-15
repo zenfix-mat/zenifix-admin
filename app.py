@@ -90,7 +90,7 @@ except Exception as e:
 if 'email_templates' not in st.session_state:
     templates = {}
     
-    # DB에 저장된 템플릿이 있으면 불러오기
+    # 1. DB에 저장된 템플릿이 있으면 시트에서 우선적으로 모두 불러오기 (메인 로직)
     if db_connected and len(template_records) > 1:
         for row in template_records[1:]:
             if len(row) >= 4:
@@ -99,37 +99,21 @@ if 'email_templates' not in st.session_state:
                     templates[tgt] = {}
                 templates[tgt][lng] = {"subject": sub, "body": bdy}
     else:
-        # DB가 비어있으면 기본 템플릿 세팅 및 DB에 최초 기록
-        default_body = """<p>Dear Cosmetics Purchasing Team,</p>
-<p>I hope this email finds you well.</p>
-<p>I am writing from zenifix, a premium K-Beauty skincare brand based in Seoul. We would like to politely request your team's review of zenifix products for a potential retail partnership in your market.</p>
-<p>We offer 14 core SKUs across two highly effective collections—our Noni Line (7 SKUs) and Ginkgo Line (7 SKUs). What truly sets zenifix apart is our exceptional ingredient concentration. Our formulations feature natural Noni and Ginkgo extracts <strong>ranging from 21% to 58% (210,000 ppm – 580,000 ppm)</strong> depending on the SKU. We differentiate our products through this uncompromising raw material content rather than generic marketing claims.</p>
-<p>zenifix 브랜드를 참고하실 수 있도록 아래에 간단한 이미지를 첨부하였습니다:</p>
-<p><img src="https://zenifix.net/img/zenifix_BrandDeck_main.png" alt="zenifix Brand Overview" style="max-width: 800px; width: 100%; height: auto;"></p>
-<p>To explore our complete Brand Deck, including full product details, current global sales channels, and our active SNS presence, please visit our official website:<br>
-👉 <strong>Official Brand Deck: <a href="https://zenifix.net">https://zenifix.net</a></strong></p>
-<p>If your team finds our brand suitable for your market after the initial review, please reply to this email. We would be happy to discuss further possibilities and details.</p>
-<p>Thank you for your time and consideration.</p>
-<p>Best regards,<br>
-Global Partnership Team<br>
-zenifix<br>
-zenifix@wellsfnd.com</p>
-<p><small><i>*If you do not wish to receive further emails, please reply with 'Unsubscribe'.</i></small></p>"""
-        
+        # 2. 구글 시트가 완전히 비어있을 때 앱 오류를 막기 위한 '최소한의 기본 틀'
+        # (기존의 길고 복잡한 HTML 하드코딩 문구는 모두 삭제했습니다.)
         templates = {
             "바이어 (유통/입점)": {
                 "English": {
-                    "subject": "[Partnership Proposal] Premium K-Beauty: 580,000ppm Skincare by zenifix",
-                    "body": default_body
+                    "subject": "[Partnership Proposal] Premium K-Beauty by zenifix",
+                    "body": "<p>Dear Cosmetics Purchasing Team,</p>\n<p>내용을 입력해 주세요.</p>"
                 }
             }
         }
-        # 최초 기본 템플릿을 구글 시트에 자동 기록
+        # 빈 시트에 최소 기본 틀 최초 기록
         if db_connected:
-            template_sheet.append_row(["바이어 (유통/입점)", "English", templates["바이어 (유통/입점)"]["English"]["subject"], default_body])
+            template_sheet.append_row(["바이어 (유통/입점)", "English", templates["바이어 (유통/입점)"]["English"]["subject"], templates["바이어 (유통/입점)"]["English"]["body"]])
 
     st.session_state.email_templates = templates
-
 
 # 탭 분리
 tab1, tab2, tab3 = st.tabs(["📥 1. 이메일 수집 (Gathering)", "📧 2. 자동 발송 (Sending)", "📊 3. 데이터 대시보드 (통계)"])
@@ -157,7 +141,7 @@ with tab1:
         selected_countries = [c.strip() for c in countries_input.split(",") if c.strip()]
         
     with col2:
-        search_keyword = st.text_input("검색 키워드 (영문+현지어 듀얼 검색됨)", value="korean cosmetics distributor contact")
+        search_keyword = st.text_input("검색 키워드 (영문+현지어 듀얼 검색됨)", value="K-beauty korean skincare cosmetics distributor contact")
         page_count = st.number_input("검색어당 페이지 수", min_value=1, max_value=10, value=2)
 
     st.divider()
