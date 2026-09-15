@@ -411,18 +411,20 @@ with tab2:
         if db_connected:
             try:
                 gather_result_sheet = gc.open("zenifix_DB").worksheet("수집결과")
-                result_records = gather_result_sheet.get_all_records()
+                result_records = gather_result_sheet.get_all_values() # 👈 get_all_records() 대신 get_all_values() 사용
                 
-                if result_records:
-                    st.session_state.loaded_buyers_df = pd.DataFrame(result_records)
-                    # 수집상태(예: '발송완료')가 아닌 기본 상태의 데이터만 보여주기 위한 셋업 (필요에 따라 필터링 가능)
+                # 💡 [핵심 패치] 데이터가 '헤더(1줄)'를 제외하고 실제로 존재하는지 확인합니다.
+                if result_records and len(result_records) > 1:
+                    # 첫 줄(헤더)을 컬럼명으로 삼아 DataFrame 생성
+                    st.session_state.loaded_buyers_df = pd.DataFrame(result_records[1:], columns=result_records[0])
                     st.success(f"🎉 총 {len(st.session_state.loaded_buyers_df)}명의 바이어 데이터를 성공적으로 불러왔습니다!")
                 else:
-                    st.warning("수집결과 탭에 저장된 바이어 데이터가 없습니다.")
+                    # 💡 데이터가 비어있을 때 뜨는 친절하고 세련된 안내 메시지
+                    st.info("📭 아직 로봇이 수집을 완료한 바이어 데이터가 없습니다. [탭 1]에서 먼저 수집 스케줄을 예약해 주세요.")
                     if 'loaded_buyers_df' in st.session_state:
                         del st.session_state.loaded_buyers_df
             except Exception as e:
-                st.error(f"수집결과 데이터를 불러오는 중 오류 발생: {e}")
+                st.error(f"수집결과 데이터를 불러오는 중 일시적인 오류가 발생했습니다: {e}")
         else:
             st.error("구글 DB와 연결되어 있지 않습니다.")
 
