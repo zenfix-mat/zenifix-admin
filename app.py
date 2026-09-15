@@ -652,13 +652,13 @@ with tab2:
 
 
         with col_btn3:
-            if st.button("📅 지정한 날짜로 예약 등록", type="primary", use_container_width=True):
+            if st.button("📅 지정한 날짜/시간으로 예약 등록", type="primary", use_container_width=True):
                 if final_df.empty:
                     st.error("예약할 바이어를 선택해 주세요!")
                 elif not db_connected:
                     st.error("구글 DB와 연결되지 않아 예약을 등록할 수 없습니다.")
                 else:
-                    st.info(f"총 {len(final_df)}명의 대상을 {scheduled_date} 예약 대기열에 등록합니다...")
+                    st.info(f"총 {len(final_df)}명의 대상을 {scheduled_datetime} 예약 대기열에 등록합니다...")
                     progress_bar = st.progress(0)
                     status_text = st.empty()
                     
@@ -690,9 +690,10 @@ with tab2:
                         current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
                         final_html = f"<html><body>{edited_html_body}</body></html>"
                         
+                        # 👇 짝꿍(try - except)이 완벽하게 맞춰진 안전한 코드입니다.
                         try:
                             queue_sheet.append_row([
-                                str(scheduled_date), buyer_email, buyer_country, buyer_website, 
+                                scheduled_datetime, buyer_email, buyer_country, buyer_website, 
                                 edited_subject, final_html, "대기중", target_type, current_time
                             ])
                             success_count += 1
