@@ -24,7 +24,6 @@ gc = gspread.authorize(credentials)
 db_sheet = gc.open("zenifix_DB").sheet1
 queue_sheet = gc.open("zenifix_DB").worksheet("발송예약")
 
-# 💡 [핵심 패치] 기준 시간을 한국(Seoul) 시간으로 고정!
 kst = pytz.timezone('Asia/Seoul')
 now_str = datetime.now(kst).strftime("%Y-%m-%d %H:%M")
 print(f"[{now_str}] 🤖 시간 지정 예약 발송 로봇 가동 시작...")
@@ -36,7 +35,6 @@ for idx, row in enumerate(records, start=2):
     status = str(row.get("상태", ""))
     reserve_time = str(row.get("예약일", "")) 
     
-    # 💡 [핵심 패치] 상태가 '대기중'이고, 예약 시간이 현재 시간과 같거나 지났을 경우에만 색출
     if status == "대기중" and reserve_time <= now_str:
         pending_rows.append((idx, row))
 
@@ -50,6 +48,8 @@ print(f"🚀 발송 대상: 총 {len(pending_rows)}건")
 server = smtplib.SMTP('smtp.gmail.com', 587)
 server.starttls()
 server.login(login_email, app_password)
+
+rows_to_delete = [] # 💡 지워야 할 엑셀 줄 번호를 담아둘 바구니
 
 for row_num, row_data in pending_rows:
     buyer_email = str(row_data.get("이메일"))
@@ -70,16 +70,22 @@ for row_num, row_data in pending_rows:
         server.send_message(msg)
         current_time = datetime.now(kst).strftime("%Y-%m-%d %H:%M:%S")
 
-        queue_sheet.update_cell(row_num, 7, "발송완료")
+        # 💡 [핵심 패치] 메인 시트에 기록하고, 발송이 끝난 줄 번호를 바구니에 담습니다.
         db_sheet.append_row([current_time, buyer_email, country, website, target_type, "English", "성공"])
+        rows_to_delete.append(row_num)
         print(f"✅ 발송 성공: {buyer_email}")
         
     except Exception as e:
         print(f"❌ 발송 실패: {buyer_email} ({e})")
         queue_sheet.update_cell(row_num, 7, "실패")
 
-    # 스팸 방지 휴식 (60초 단위 분산 발송)
     time.sleep(60)
 
 server.quit()
-print("🎉 예약 발송 작업이 모두 완료되었습니다!")
+
+# 💡 [핵심 패치] 성공한 내역을 구글 시트에서 완전히 삭제합니다!
+# (행이 꼬이지 않도록 맨 밑의 줄부터 거꾸로 지워 올라갑니다.)
+for r in sorted(rows_to_delete, reverse=True):
+    queue_sheet.delete_rows(r)
+
+print("🎉 예약 발송 및 대기열 청소 작업이 모두 완료되었습니다!")
