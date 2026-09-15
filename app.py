@@ -261,10 +261,10 @@ with tab1:
 
 
 # ==========================================
-# [탭 2] 글로벌 이메일 자동 발송기
+# [탭 2] 글로벌 콜드 메일 자동 발송 (Excel-Free & 다이렉트 DB 연동)
 # ==========================================
 with tab2:
-    st.header("글로벌 이메일 자동 발송기")
+    st.header("글로벌 바이어 이메일 자동 발송기")
     
     if db_connected:
         st.success("✅ 구글 스프레드시트 연동 완료! 템플릿 및 발송 이력이 자동 관리됩니다.")
@@ -317,20 +317,18 @@ with tab2:
     edited_subject = st.text_input("📝 이메일 제목 (수정 가능)", value=current_subject)
     edited_html_body = st.text_area("🔧 이메일 본문 (HTML 태그 통째로 자유 수정)", value=current_body, height=350)
 
-    # 👇 [핵심 기능] 템플릿 영구 저장 버튼
+    # 템플릿 영구 저장 버튼
     if st.button("💾 현재 수정한 제목과 본문을 '현재 템플릿'으로 영구 저장", type="primary", use_container_width=True):
-        # 1. 세션 스테이트(화면) 업데이트
         st.session_state.email_templates[target_type][selected_language]["subject"] = edited_subject
         st.session_state.email_templates[target_type][selected_language]["body"] = edited_html_body
         
-        # 2. 구글 시트(DB) 업데이트
         if db_connected:
             try:
                 records = template_sheet.get_all_values()
                 found_row_idx = -1
                 for i, row in enumerate(records):
                     if i > 0 and row[0] == target_type and row[1] == selected_language:
-                        found_row_idx = i + 1 # gspread는 1번부터 인덱스 시작
+                        found_row_idx = i + 1
                         break
                 
                 if found_row_idx != -1:
@@ -353,7 +351,7 @@ with tab2:
 
     st.divider()
 
-    # --- 관리자 계정 설정 및 발송 스케줄링 (하단 배치) ---
+    # --- 관리자 계정 설정 및 수신거부 관리 ---
     st.subheader("⚙️ 관리자 계정 설정 및 발송 스케줄링")
     st.info("이메일 발송 권한 및 스케줄링을 설정하는 보안 영역입니다.")
     
@@ -402,60 +400,180 @@ with tab2:
     
     st.markdown("<br>", unsafe_allow_html=True)
     
-    # 발송 예약 입력 영역
-    col_date, col_file = st.columns(2)
-    with col_date:
-        scheduled_date = st.date_input("📅 달력에서 예약 발송 일자를 선택하세요", min_value=datetime.today().date())
-    with col_file:
-        uploaded_file = st.file_uploader("📥 수집한 바이어 '엑셀 파일'을 올려주세요.", type=["xlsx"])
+    # =========================================================================
+    # [새로운 핵심 기능] 엑셀-프리(Excel-Free) 다이렉트 DB 연동 및 휴먼 검수 
+    # =========================================================================
+    st.subheader("📥 [Excel-Free] 수집된 바이어 DB 직접 불러오기 및 검수")
+    st.caption("로봇이 구글 시트(수집결과 탭)에 모아둔 바이어 목록을 바로 불러와서 확인하고 발송할 수 있습니다.")
     
-    delay_seconds = st.slider("메일 발송 간격 조절 (즉시 발송 시 적용, 단위: 초)", min_value=10, max_value=300, value=180, step=10)
-    
-    st.markdown("<br>", unsafe_allow_html=True)
-    
-    # 발송 컨트롤 버튼들
-    col_btn1, col_btn2, col_btn3 = st.columns(3)
-    
-    with col_btn1:
-        if st.button("🧪 내 메일로 테스트 1건 발송", use_container_width=True):
-            if not login_email or not app_password:
-                st.warning("로그인 이메일과 앱 비밀번호를 먼저 입력해 주세요.")
-            else:
-                try:
-                    server = smtplib.SMTP('smtp.gmail.com', 587)
-                    server.starttls()
-                    server.login(login_email, app_password)
-                    msg = MIMEMultipart()
-                    msg['From'] = f"zenifix Team <{sender_email}>"
-                    msg['To'] = login_email  
-                    msg['Subject'] = edited_subject
-                    final_html = f"<html><body>{edited_html_body}</body></html>"
-                    msg.attach(MIMEText(final_html, 'html'))
-                    server.send_message(msg)
-                    server.quit()
-                    st.toast("✅ 테스트 메일이 성공적으로 발송되었습니다!")
-                except Exception as e:
-                    st.error(f"테스트 발송 실패: {e}")
-
-    with col_btn2:
-        if st.button("⚡ 즉시 대량 발송 시작 (예약 안 함)", use_container_width=True):
-            if not uploaded_file or not login_email or not app_password:
-                st.error("엑셀 파일, 로그인 이메일, 앱 비밀번호를 모두 입력해 주세요!")
-            else:
-                df = pd.read_excel(uploaded_file)
-                st.info(f"총 {len(df)}명의 대상에게 즉시 발송을 시작합니다...")
-                progress_bar = st.progress(0)
-                status_text = st.empty()
+    # 1. DB에서 데이터 불러오기 버튼
+    if st.button("🔄 로봇이 수집한 최신 바이어 DB 불러오기"):
+        if db_connected:
+            try:
+                gather_result_sheet = gc.open("zenifix_DB").worksheet("수집결과")
+                result_records = gather_result_sheet.get_all_records()
                 
-                try:
-                    server = smtplib.SMTP('smtp.gmail.com', 587)
-                    server.starttls()
-                    server.login(login_email, app_password)
+                if result_records:
+                    st.session_state.loaded_buyers_df = pd.DataFrame(result_records)
+                    # 수집상태(예: '발송완료')가 아닌 기본 상태의 데이터만 보여주기 위한 셋업 (필요에 따라 필터링 가능)
+                    st.success(f"🎉 총 {len(st.session_state.loaded_buyers_df)}명의 바이어 데이터를 성공적으로 불러왔습니다!")
+                else:
+                    st.warning("수집결과 탭에 저장된 바이어 데이터가 없습니다.")
+                    if 'loaded_buyers_df' in st.session_state:
+                        del st.session_state.loaded_buyers_df
+            except Exception as e:
+                st.error(f"수집결과 데이터를 불러오는 중 오류 발생: {e}")
+        else:
+            st.error("구글 DB와 연결되어 있지 않습니다.")
+
+    # 2. 데이터 에디터 (휴먼 검수 및 선택)
+    if 'loaded_buyers_df' in st.session_state and not st.session_state.loaded_buyers_df.empty:
+        df_buyers = st.session_state.loaded_buyers_df.copy()
+        
+        # '선택'이라는 체크박스 열을 맨 앞에 추가 (기본값 True)
+        if '선택' not in df_buyers.columns:
+             df_buyers.insert(0, '선택', True)
+             
+        st.markdown("##### 🧐 발송 전 바이어 휴먼 검수")
+        st.caption("발송을 원하지 않는 이메일(예: 고객센터, 아마존 등)은 아래 표에서 **'선택' 체크박스를 해제**해 주세요.")
+        
+        # 사용자가 직접 표에서 체크박스를 수정할 수 있는 data_editor 사용
+        edited_df = st.data_editor(
+            df_buyers,
+            hide_index=True,
+            use_container_width=True,
+            disabled=["수집일시", "국가명", "업체명", "웹사이트", "이메일", "검색키워드"], # 다른 열은 수정 불가
+            column_config={
+                "선택": st.column_config.CheckboxColumn("발송 선택", help="체크 해제 시 발송 대상에서 제외됩니다.", default=True)
+            }
+        )
+        
+        # 체크된 항목만 최종 발송 대상으로 필터링
+        final_df = edited_df[edited_df['선택'] == True].copy()
+        st.info(f"선택된 최종 발송 대상: **{len(final_df)}명** / 전체: {len(edited_df)}명")
+        
+        st.markdown("<br>", unsafe_allow_html=True)
+
+        # --- 발송 스케줄링 및 엑셀 기반 예약 발송 (기존과 동일하지만, 대상이 final_df로 변경됨) ---
+        col_date, col_delay = st.columns(2)
+        with col_date:
+            scheduled_date = st.date_input("📅 달력에서 예약 발송 일자를 선택하세요", min_value=datetime.today().date())
+        with col_delay:
+            delay_seconds = st.slider("메일 발송 간격 조절 (즉시 발송 시 적용, 단위: 초)", min_value=10, max_value=300, value=180, step=10)
+        
+        st.markdown("<br>", unsafe_allow_html=True)
+        
+        col_btn1, col_btn2, col_btn3 = st.columns(3)
+        
+        with col_btn1:
+            if st.button("🧪 내 메일로 테스트 1건 발송", use_container_width=True):
+                if not login_email or not app_password:
+                    st.warning("로그인 이메일과 앱 비밀번호를 먼저 입력해 주세요.")
+                else:
+                    try:
+                        server = smtplib.SMTP('smtp.gmail.com', 587)
+                        server.starttls()
+                        server.login(login_email, app_password)
+                        msg = MIMEMultipart()
+                        msg['From'] = f"zenifix Team <{sender_email}>"
+                        msg['To'] = login_email  
+                        msg['Subject'] = edited_subject
+                        final_html = f"<html><body>{edited_html_body}</body></html>"
+                        msg.attach(MIMEText(final_html, 'html'))
+                        server.send_message(msg)
+                        server.quit()
+                        st.toast("✅ 테스트 메일이 성공적으로 발송되었습니다!")
+                    except Exception as e:
+                        st.error(f"테스트 발송 실패: {e}")
+
+        with col_btn2:
+            if st.button("⚡ 즉시 대량 발송 시작 (예약 안 함)", use_container_width=True):
+                if final_df.empty:
+                    st.error("발송할 바이어를 선택해 주세요!")
+                elif not login_email or not app_password:
+                    st.error("로그인 이메일, 앱 비밀번호를 모두 입력해 주세요!")
+                else:
+                    st.info(f"총 {len(final_df)}명의 대상에게 즉시 발송을 시작합니다...")
+                    progress_bar = st.progress(0)
+                    status_text = st.empty()
+                    
+                    try:
+                        server = smtplib.SMTP('smtp.gmail.com', 587)
+                        server.starttls()
+                        server.login(login_email, app_password)
+                        
+                        success_count = 0
+                        skip_count = 0 
+                        
+                        for index, row in final_df.iterrows():
+                            buyer_email = str(row.get('이메일', '')).strip()
+                            buyer_country = str(row.get('국가명', '미확인'))
+                            buyer_website = str(row.get('웹사이트', '미확인'))
+                            
+                            if buyer_email in blacklist_emails:
+                                status_text.text(f"🚫 수신거부 대상 제외됨: {buyer_email}")
+                                skip_count += 1
+                                progress_bar.progress((index + 1) / len(final_df))
+                                continue
+                            
+                            msg = MIMEMultipart()
+                            msg['From'] = f"zenifix Team <{sender_email}>"
+                            msg['To'] = buyer_email
+                            msg['Subject'] = edited_subject
+                            msg.add_header('reply-to', sender_email)
+                            
+                            final_html = f"<html><body>{edited_html_body}</body></html>"
+                            msg.attach(MIMEText(final_html, 'html'))
+                            
+                            try:
+                                server.send_message(msg)
+                                success_count += 1
+                                current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                                
+                                if db_connected:
+                                    try:
+                                        db_sheet.append_row([
+                                            current_time, buyer_email, buyer_country, 
+                                            buyer_website, target_type, selected_language, "성공"
+                                        ])
+                                    except Exception as e:
+                                        pass
+                                        
+                                status_text.text(f"✅ 발송 완료 ({buyer_country}): {buyer_email}")
+                            except:
+                                status_text.text(f"❌ 발송 실패: {buyer_email}")
+                            
+                            progress_bar.progress((index + 1) / len(final_df))
+                            if index < len(final_df) - 1:
+                                status_text.text(f"⏳ 스팸 방지를 위해 {delay_seconds}초 대기 중...")
+                                time.sleep(delay_seconds)
+                                
+                        server.quit()
+                        st.success(f"🎉 총 {success_count}건 실시간 발송 완료! (수신거부 스킵: {skip_count}명)")
+                        
+                    except Exception as e:
+                        st.error(f"🚨 이메일 로그인 실패. 오류: {e}")
+
+        with col_btn3:
+            if st.button("📅 지정한 날짜로 예약 등록", type="primary", use_container_width=True):
+                if final_df.empty:
+                    st.error("예약할 바이어를 선택해 주세요!")
+                elif not db_connected:
+                    st.error("구글 DB와 연결되지 않아 예약을 등록할 수 없습니다.")
+                else:
+                    st.info(f"총 {len(final_df)}명의 대상을 {scheduled_date} 예약 대기열에 등록합니다...")
+                    progress_bar = st.progress(0)
+                    status_text = st.empty()
                     
                     success_count = 0
                     skip_count = 0 
                     
-                    for index, row in df.iterrows():
+                    try:
+                        existing_queue_emails = queue_sheet.col_values(2) 
+                    except:
+                        existing_queue_emails = []
+
+                    for index, row in final_df.iterrows():
                         buyer_email = str(row.get('이메일', '')).strip()
                         buyer_country = str(row.get('국가명', '미확인'))
                         buyer_website = str(row.get('웹사이트', '미확인'))
@@ -463,101 +581,32 @@ with tab2:
                         if buyer_email in blacklist_emails:
                             status_text.text(f"🚫 수신거부 대상 제외됨: {buyer_email}")
                             skip_count += 1
-                            progress_bar.progress((index + 1) / len(df))
+                            progress_bar.progress((index + 1) / len(final_df))
+                            continue
+                            
+                        if buyer_email in existing_queue_emails:
+                            status_text.text(f"⚠️ 이미 예약된 바이어 제외됨: {buyer_email}")
+                            skip_count += 1
+                            progress_bar.progress((index + 1) / len(final_df))
                             continue
                         
-                        msg = MIMEMultipart()
-                        msg['From'] = f"zenifix Team <{sender_email}>"
-                        msg['To'] = buyer_email
-                        msg['Subject'] = edited_subject
-                        msg.add_header('reply-to', sender_email)
-                        
+                        current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
                         final_html = f"<html><body>{edited_html_body}</body></html>"
-                        msg.attach(MIMEText(final_html, 'html'))
                         
                         try:
-                            server.send_message(msg)
+                            queue_sheet.append_row([
+                                str(scheduled_date), buyer_email, buyer_country, buyer_website, 
+                                edited_subject, final_html, "대기중", target_type, current_time
+                            ])
                             success_count += 1
-                            current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                            status_text.text(f"✅ 예약 등록 완료 ({buyer_country}): {buyer_email}")
+                        except Exception as e:
+                            status_text.text(f"❌ DB 기록 실패: {e}")
+                        
+                        progress_bar.progress((index + 1) / len(final_df))
+                        time.sleep(1.5) 
                             
-                            if db_connected:
-                                try:
-                                    db_sheet.append_row([
-                                        current_time, buyer_email, buyer_country, 
-                                        buyer_website, target_type, selected_language, "성공"
-                                    ])
-                                except Exception as e:
-                                    pass
-                                    
-                            status_text.text(f"✅ 발송 완료 ({buyer_country}): {buyer_email}")
-                        except:
-                            status_text.text(f"❌ 발송 실패: {buyer_email}")
-                        
-                        progress_bar.progress((index + 1) / len(df))
-                        if index < len(df) - 1:
-                            status_text.text(f"⏳ 스팸 방지를 위해 {delay_seconds}초 대기 중...")
-                            time.sleep(delay_seconds)
-                            
-                    server.quit()
-                    st.success(f"🎉 총 {success_count}건 실시간 발송 완료! (수신거부 스킵: {skip_count}명)")
-                    
-                except Exception as e:
-                    st.error(f"🚨 이메일 로그인 실패. 오류: {e}")
-
-    with col_btn3:
-        if st.button("📅 지정한 날짜로 예약 등록", type="primary", use_container_width=True):
-            if not uploaded_file:
-                st.error("엑셀 파일을 먼저 올려주세요!")
-            elif not db_connected:
-                st.error("구글 DB와 연결되지 않아 예약을 등록할 수 없습니다.")
-            else:
-                df = pd.read_excel(uploaded_file)
-                st.info(f"총 {len(df)}명의 대상을 {scheduled_date} 예약 대기열에 등록합니다...")
-                progress_bar = st.progress(0)
-                status_text = st.empty()
-                
-                success_count = 0
-                skip_count = 0 
-                
-                try:
-                    existing_queue_emails = queue_sheet.col_values(2) 
-                except:
-                    existing_queue_emails = []
-
-                for index, row in df.iterrows():
-                    buyer_email = str(row.get('이메일', '')).strip()
-                    buyer_country = str(row.get('국가명', '미확인'))
-                    buyer_website = str(row.get('웹사이트', '미확인'))
-                    
-                    if buyer_email in blacklist_emails:
-                        status_text.text(f"🚫 수신거부 대상 제외됨: {buyer_email}")
-                        skip_count += 1
-                        progress_bar.progress((index + 1) / len(df))
-                        continue
-                        
-                    if buyer_email in existing_queue_emails:
-                        status_text.text(f"⚠️ 이미 예약된 바이어 제외됨: {buyer_email}")
-                        skip_count += 1
-                        progress_bar.progress((index + 1) / len(df))
-                        continue
-                    
-                    current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                    final_html = f"<html><body>{edited_html_body}</body></html>"
-                    
-                    try:
-                        queue_sheet.append_row([
-                            str(scheduled_date), buyer_email, buyer_country, buyer_website, 
-                            edited_subject, final_html, "대기중", target_type, current_time
-                        ])
-                        success_count += 1
-                        status_text.text(f"✅ 예약 등록 완료 ({buyer_country}): {buyer_email}")
-                    except Exception as e:
-                        status_text.text(f"❌ DB 기록 실패: {e}")
-                    
-                    progress_bar.progress((index + 1) / len(df))
-                    time.sleep(1.5) 
-                        
-                st.success(f"🎉 총 {success_count}건 예약 완료! (수신거부/중복 제외: {skip_count}명)")
+                    st.success(f"🎉 총 {success_count}건 예약 완료! (수신거부/중복 제외: {skip_count}명)")
 
     # --- 예약 현황 모니터링 대시보드 ---
     st.divider()
