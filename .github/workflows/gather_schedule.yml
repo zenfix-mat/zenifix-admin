@@ -1,11 +1,12 @@
 name: Zenifix Gather Robot
 
 on:
-  # 매시간 정각마다(1시간 간격) 로봇이 깨어나서 시트를 확인합니다.
-  schedule:
-    - cron: '0 * * * *'
-  # 수동으로 버튼을 눌러서 켤 수 있는 옵션
+  # [1번 기능] 수동으로 버튼을 눌러서 원할 때 즉시 실행할 수 있는 스위치
   workflow_dispatch:
+  
+  # [2번 기능] 15분 간격으로 로봇이 자동으로 깨어나서 실행되도록 하는 알람
+  schedule:
+    - cron: '*/15 * * * *'
 
 jobs:
   run-gatherer:
