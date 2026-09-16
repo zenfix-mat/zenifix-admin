@@ -28,15 +28,19 @@ kst = pytz.timezone('Asia/Seoul')
 now_str = datetime.now(kst).strftime("%Y-%m-%d %H:%M")
 print(f"[{now_str}] 🤖 시간 지정 예약 발송 로봇 가동 시작...")
 
-# 3. 지정된 시간이 지난 '대기중' 큐(Queue) 찾기
+# 3. 지정된 시간이 지난 '대기중' 큐(Queue) 찾기 및 '진행중' 잠금(Lock) 설정
 records = queue_sheet.get_all_records()
 pending_rows = []
+
 for idx, row in enumerate(records, start=2):
     status = str(row.get("상태", ""))
     reserve_time = str(row.get("예약일", "")) 
     
     if status == "대기중" and reserve_time <= now_str:
         pending_rows.append((idx, row))
+        # 💡 [핵심 방어 1] 발견 즉시 상태를 '진행중'으로 바꿔 15분 뒤에 깰 다음 로봇이 건드리지 못하게 차단합니다!
+        queue_sheet.update_cell(idx, 7, "진행중")
+        time.sleep(1) # 구글 API 과부하 방지
 
 if not pending_rows:
     print("✅ 현재 시간이 된 발송 예약 건이 없습니다. 로봇을 종료합니다.")
@@ -44,13 +48,9 @@ if not pending_rows:
 
 print(f"🚀 발송 대상: 총 {len(pending_rows)}건")
 
-# 4. 이메일 서버 연결 및 발송 시작
-server = smtplib.SMTP('smtp.gmail.com', 587)
-server.starttls()
-server.login(login_email, app_password)
+rows_to_delete = []
 
-rows_to_delete = [] # 💡 지워야 할 엑셀 줄 번호를 담아둘 바구니
-
+# 4. 개별 이메일 발송 루프
 for row_num, row_data in pending_rows:
     buyer_email = str(row_data.get("이메일"))
     subject = str(row_data.get("제목"))
@@ -67,11 +67,20 @@ for row_num, row_data in pending_rows:
     msg.attach(MIMEText(body_html, 'html'))
 
     try:
+        # 💡 [핵심 방어 2] 타임아웃 중단을 막기 위해, 매번 1통씩 발송할 때마다 구글 서버에 새롭게 연결하고 바로 닫습니다.
+        server = smtplib.SMTP('smtp.gmail.com', 587)
+        server.starttls()
+        server.login(login_email, app_password)
+        
         server.send_message(msg)
+        server.quit()
+        
         current_time = datetime.now(kst).strftime("%Y-%m-%d %H:%M:%S")
 
-        # 💡 [핵심 패치] 메인 시트에 기록하고, 발송이 끝난 줄 번호를 바구니에 담습니다.
         db_sheet.append_row([current_time, buyer_email, country, website, target_type, "English", "성공"])
+        
+        # 💡 [핵심 방어 3] 나중에 한꺼번에 지우기 전, 우선 시트에 '발송완료'라고 확실하게 도장을 찍습니다.
+        queue_sheet.update_cell(row_num, 7, "발송완료")
         rows_to_delete.append(row_num)
         print(f"✅ 발송 성공: {buyer_email}")
         
@@ -79,12 +88,10 @@ for row_num, row_data in pending_rows:
         print(f"❌ 발송 실패: {buyer_email} ({e})")
         queue_sheet.update_cell(row_num, 7, "실패")
 
+    # 스팸 방지를 위한 1분 휴식
     time.sleep(60)
 
-server.quit()
-
-# 💡 [핵심 패치] 성공한 내역을 구글 시트에서 완전히 삭제합니다!
-# (행이 꼬이지 않도록 맨 밑의 줄부터 거꾸로 지워 올라갑니다.)
+# 발송이 완료된 데이터 시트에서 깔끔하게 삭제
 for r in sorted(rows_to_delete, reverse=True):
     queue_sheet.delete_rows(r)
 
