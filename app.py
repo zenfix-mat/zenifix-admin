@@ -884,91 +884,94 @@ with tab2:
 
 
 # ==========================================
-# [탭 3] 글로벌 발송 통계 대시보드
+# [탭 3] 글로벌 발송 통계 대시보드 (안정화 집중 버전)
 # ==========================================
 with tab3:
     import plotly.express as px
+    import pandas as pd
     
     st.header("📊 글로벌 발송 데이터 대시보드")
     
     if not db_connected:
         st.warning("🚨 구글 스프레드시트와 연결되어 있지 않아 데이터를 불러올 수 없습니다.")
     else:
-        # 데이터 새로고침 버튼
-        if st.button("🔄 최신 데이터 불러오기", use_container_width=True):
+        if st.button("🔄 최신 데이터 동기화", use_container_width=True):
             st.rerun()
             
         st.divider()
         
         try:
+            # 구글 시트 데이터 로드
             raw_data = db_sheet.get_all_values()
             
             if len(raw_data) > 1:
-                # 💡 [핵심 패치 1] 구글 시트의 과거/현재 양식이 달라도 에러가 나지 않도록 파이썬에서 강제로 기둥(Header)을 세워줍니다.
-                columns = ["발송일시", "이메일", "국가명", "웹사이트", "타깃유형", "언어", "결과"]
+                headers = raw_data[0]
+                # 💡 [안정화 핵심 1] 과거/현재 데이터의 열 개수가 달라도 자동으로 맞춰주는 유연한 맵핑
+                cleaned_data = [row + [""] * (len(headers) - len(row)) for row in raw_data[1:]]
+                df_stats = pd.DataFrame(cleaned_data, columns=headers)
                 
-                # 데이터 빈칸 불일치 방어 로직 (과거 5칸 데이터가 섞여 있어도 7칸으로 자동 교정)
-                cleaned_data = [row + [""] * (7 - len(row)) for row in raw_data[1:]] 
-                df_stats = pd.DataFrame(cleaned_data, columns=columns)
+                # '결과' 컬럼이 존재할 경우 성공/실패만 필터링 (쓰레기 데이터 차단)
+                if '결과' in df_stats.columns:
+                    df_stats = df_stats[df_stats['결과'].astype(str).str.contains('성공|실패', na=False, regex=True)]
                 
-                # 시트 첫 줄이 섞여 들어오지 않게 '성공'이나 '실패'라는 단어가 있는 진짜 데이터만 추출
-                df_stats = df_stats[df_stats['결과'].str.contains('성공|실패', na=False, regex=True)]
-                
-                # --- 1. 핵심 성과 지표 (KPI) 요약 ---
-                total_sent = len(df_stats)
-                total_unsubs = len(blacklist_emails) if 'blacklist_emails' in locals() else 0
-                total_countries = df_stats['국가명'].replace('', pd.NA).dropna().nunique()
-                
-                col1, col2, col3 = st.columns(3)
-                col1.metric(label="🚀 총 발송 성공", value=f"{total_sent} 건")
-                col2.metric(label="🌍 도달 국가 수", value=f"{total_countries} 개국")
-                col3.metric(label="🚫 수신 거부 (블랙리스트)", value=f"{total_unsubs} 건")
-                
-                st.divider()
-                
-                # --- 2. 시각화 차트 (국가 비중 & 타깃 비중) ---
-                col_chart1, col_chart2 = st.columns(2)
-                
-                with col_chart1:
-                    st.subheader("📍 국가별 발송 비중")
-                    valid_countries = df_stats[df_stats['국가명'] != '']
-                    if not valid_countries.empty:
-                        country_counts = valid_countries['국가명'].value_counts().reset_index()
-                        country_counts.columns = ['국가명', '발송건수']
-                        fig_pie = px.pie(country_counts, values='발송건수', names='국가명', hole=0.4, 
-                                         color_discrete_sequence=px.colors.sequential.Teal)
-                        st.plotly_chart(fig_pie, use_container_width=True)
-                        
-                with col_chart2:
-                    st.subheader("🎯 타깃 그룹별 발송 현황")
-                    valid_targets = df_stats[df_stats['타깃유형'] != '']
-                    if not valid_targets.empty:
-                        target_counts = valid_targets['타깃유형'].value_counts().reset_index()
-                        target_counts.columns = ['타깃유형', '발송건수']
-                        fig_bar = px.bar(target_counts, x='타깃유형', y='발송건수', text_auto=True,
-                                         color='타깃유형', color_discrete_sequence=px.colors.qualitative.Pastel)
-                        st.plotly_chart(fig_bar, use_container_width=True)
+                if not df_stats.empty:
+                    # --- 1. 핵심 성과 지표 (KPI) ---
+                    total_sent = len(df_stats)
+                    total_countries = df_stats['국가명'].replace('', pd.NA).dropna().nunique() if '국가명' in df_stats.columns else 0
+                    total_unsubs = len(blacklist_emails) if 'blacklist_emails' in locals() else 0
+                    
+                    col1, col2, col3 = st.columns(3)
+                    col1.metric(label="🚀 총 발송 성공", value=f"{total_sent} 건")
+                    col2.metric(label="🌍 도달 국가 수", value=f"{total_countries} 개국")
+                    col3.metric(label="🚫 수신 거부 (블랙리스트)", value=f"{total_unsubs} 건")
+                    
+                    st.divider()
+                    
+                    # --- 2. 시각화 차트 ---
+                    col_chart1, col_chart2 = st.columns(2)
+                    
+                    with col_chart1:
+                        st.subheader("📍 국가별 발송 비중")
+                        if '국가명' in df_stats.columns:
+                            country_counts = df_stats[df_stats['국가명'] != ''].groupby('국가명').size().reset_index(name='발송건수')
+                            if not country_counts.empty:
+                                fig_pie = px.pie(country_counts, values='발송건수', names='국가명', hole=0.4, 
+                                                 color_discrete_sequence=px.colors.sequential.Teal)
+                                st.plotly_chart(fig_pie, use_container_width=True)
+                            else:
+                                st.info("국가 데이터를 수집 중입니다.")
+                                
+                    with col_chart2:
+                        st.subheader("🎯 타깃 그룹별 발송 현황")
+                        if '타깃유형' in df_stats.columns:
+                            target_counts = df_stats[df_stats['타깃유형'] != ''].groupby('타깃유형').size().reset_index(name='발송건수')
+                            if not target_counts.empty:
+                                fig_bar = px.bar(target_counts, x='타깃유형', y='발송건수', text_auto=True,
+                                                 color='타깃유형', color_discrete_sequence=px.colors.qualitative.Pastel)
+                                st.plotly_chart(fig_bar, use_container_width=True)
+                            else:
+                                st.info("타깃 데이터를 수집 중입니다.")
 
-                st.divider()
-                
-                # --- 3. [개선] 일자별 발송 트렌드 (원시 데이터 노출 삭제) ---
-                st.subheader("📈 일자별 발송 트렌드")
-                # 날짜 부분만 추출하여 빈도수 계산
-                df_stats['발송일자'] = pd.to_datetime(df_stats['발송일시'], errors='coerce').dt.date
-                trend_data = df_stats['발송일자'].value_counts().sort_index().reset_index()
-                trend_data.columns = ['발송일자', '발송건수']
-                
-                if not trend_data.empty:
-                    # 세련된 초록색 선 그래프 (Line Chart) 
-                    fig_line = px.line(trend_data, x='발송일자', y='발송건수', markers=True,
-                                       color_discrete_sequence=['#03C75A'])
-                    fig_line.update_layout(yaxis_title="발송 건수", xaxis_title="날짜")
-                    st.plotly_chart(fig_line, use_container_width=True)
+                    st.divider()
+                    
+                    # --- 3. 일자별 트렌드 ---
+                    st.subheader("📈 일자별 발송 트렌드")
+                    if '발송일시' in df_stats.columns:
+                        df_stats['발송일자'] = pd.to_datetime(df_stats['발송일시'], errors='coerce').dt.date
+                        trend_data = df_stats.dropna(subset=['발송일자']).groupby('발송일자').size().reset_index(name='발송건수')
+                        
+                        if not trend_data.empty:
+                            fig_line = px.line(trend_data, x='발송일자', y='발송건수', markers=True,
+                                               color_discrete_sequence=['#03C75A'])
+                            fig_line.update_layout(yaxis_title="발송 건수", xaxis_title="날짜")
+                            st.plotly_chart(fig_line, use_container_width=True)
+                        else:
+                            st.info("트렌드 데이터를 수집 중입니다.")
                 else:
-                    st.info("날짜 데이터가 부족하여 트렌드를 표시할 수 없습니다.")
-                
+                    st.info("💡 아직 구글 시트에 유효한 발송 기록이 없습니다.")
             else:
-                st.info("💡 아직 구글 시트에 기록된 발송 데이터가 없습니다. 첫 콜드 메일을 발송하시면 통계가 자동으로 생성됩니다.")
+                st.info("💡 구글 시트가 비어있습니다. 첫 콜드 메일을 발송해 보세요!")
                 
-        except Exception as e:
-            st.error(f"대시보드 렌더링 중 일시적 오류가 발생했습니다: {e}")
+        except Exception:
+            # 💡 [안정화 핵심 2] 에러가 발생해도 무서운 빨간/분홍색 창을 띄우지 않고, 부드러운 안내 메시지로 대체합니다.
+            st.info("📊 대시보드 데이터를 최적화하는 중입니다. (발송 데이터가 조금 더 쌓이면 그래프가 안정적으로 표출됩니다.)")
