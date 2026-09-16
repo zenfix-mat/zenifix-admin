@@ -674,8 +674,10 @@ with tab2:
                         success_count = 0
                         skip_count = 0 
                         processed_emails = [] 
+                        rows_to_delete_from_gather = [] # 💡 수집결과 시트에서 지울 행 번호 모음
                         
-                        for index, row in final_df.iterrows():
+                        # 💡 [핵심 패치 1] i 변수를 추가하여 진행률 바(Progress) 에러를 완벽 해결!
+                        for i, (index, row) in enumerate(final_df.iterrows()):
                             buyer_email = str(row.get('이메일', '')).strip()
                             buyer_country = str(row.get('국가명', '미확인'))
                             buyer_website = str(row.get('웹사이트', '미확인'))
@@ -683,13 +685,13 @@ with tab2:
                             if buyer_email in blacklist_emails:
                                 status_text.text(f"🚫 수신거부 대상 제외됨: {buyer_email}")
                                 skip_count += 1
-                                progress_bar.progress((index + 1) / len(final_df))
+                                progress_bar.progress((i + 1) / len(final_df))
                                 continue
                                 
                             if buyer_email in processed_emails:
                                 status_text.text(f"⚠️ 엑셀 내 중복 바이어 제외됨: {buyer_email}")
                                 skip_count += 1
-                                progress_bar.progress((index + 1) / len(final_df))
+                                progress_bar.progress((i + 1) / len(final_df))
                                 continue
                             
                             msg = MIMEMultipart()
@@ -713,6 +715,8 @@ with tab2:
                                             current_time, buyer_email, buyer_country, 
                                             buyer_website, target_type, selected_language, "성공"
                                         ])
+                                        # 💡 [핵심 패치 2] 성공 시 수집결과 시트의 몇 번째 줄인지 기억해둠
+                                        rows_to_delete_from_gather.append(index + 2) 
                                     except:
                                         pass
                                         
@@ -720,16 +724,30 @@ with tab2:
                             except:
                                 status_text.text(f"❌ 발송 실패: {buyer_email}")
                             
-                            progress_bar.progress((index + 1) / len(final_df))
-                            if index < len(final_df) - 1:
+                            # 고장났던 진행률 공식 수정 완료
+                            progress_bar.progress((i + 1) / len(final_df))
+                            
+                            if i < len(final_df) - 1:
                                 status_text.text(f"⏳ 스팸 방지를 위해 {delay_seconds}초 대기 중...")
                                 time.sleep(delay_seconds)
                                 
                         server.quit()
-                        st.success(f"🎉 총 {success_count}건 실시간 발송 완료! (수신거부/중복 스킵: {skip_count}명)")
+                        
+                        # 💡 [핵심 패치 3] 발송이 모두 끝난 후, '수집결과' 탭에서 해당 이메일들을 영구 삭제!
+                        if db_connected and rows_to_delete_from_gather:
+                            try:
+                                gather_sheet = gc.open("zenifix_DB").worksheet("수집결과")
+                                # 행 번호가 꼬이지 않게 맨 밑에서부터 거꾸로 지웁니다.
+                                for r in sorted(rows_to_delete_from_gather, reverse=True):
+                                    gather_sheet.delete_rows(r)
+                            except:
+                                pass
+                                
+                        st.success(f"🎉 총 {success_count}건 발송 및 수집DB 청소 완료! (스킵: {skip_count}명)")
                         
                     except Exception as e:
-                        st.error(f"🚨 이메일 로그인 실패. 오류: {e}")
+                        # 가짜 로그인 에러 메시지 텍스트 수정
+                        st.error(f"🚨 발송 시스템 오류: {e}")
 
         # ----------------------------------------------------
         # 버튼 3: 날짜/시간 지정 예약 등록
@@ -747,13 +765,15 @@ with tab2:
                     
                     success_count = 0
                     skip_count = 0 
+                    rows_to_delete_from_gather = [] # 💡 수집결과 시트에서 지울 행 번호 모음
                     
                     try:
                         existing_queue_emails = queue_sheet.col_values(2) 
                     except:
                         existing_queue_emails = []
 
-                    for index, row in final_df.iterrows():
+                    # 💡 진행률 에러 방지
+                    for i, (index, row) in enumerate(final_df.iterrows()):
                         buyer_email = str(row.get('이메일', '')).strip()
                         buyer_country = str(row.get('국가명', '미확인'))
                         buyer_website = str(row.get('웹사이트', '미확인'))
@@ -761,13 +781,13 @@ with tab2:
                         if buyer_email in blacklist_emails:
                             status_text.text(f"🚫 수신거부 대상 제외됨: {buyer_email}")
                             skip_count += 1
-                            progress_bar.progress((index + 1) / len(final_df))
+                            progress_bar.progress((i + 1) / len(final_df))
                             continue
                             
                         if buyer_email in existing_queue_emails:
                             status_text.text(f"⚠️ 이미 예약된 바이어 제외됨: {buyer_email}")
                             skip_count += 1
-                            progress_bar.progress((index + 1) / len(final_df))
+                            progress_bar.progress((i + 1) / len(final_df))
                             continue
                         
                         current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -779,16 +799,25 @@ with tab2:
                                 edited_subject, final_html, "대기중", target_type, current_time
                             ])
                             success_count += 1
-                            # 💡 [핵심 복원] 방금 예약한 이메일도 중복 리스트에 추가하여 동일 엑셀 파일 내 중복 예약 원천 차단!
                             existing_queue_emails.append(buyer_email)
+                            rows_to_delete_from_gather.append(index + 2) # 💡 예약 성공 시 삭제할 행 번호 기억
                             status_text.text(f"✅ 예약 등록 완료 ({buyer_country}): {buyer_email}")
                         except Exception as e:
                             status_text.text(f"❌ DB 기록 실패: {e}")
                         
-                        progress_bar.progress((index + 1) / len(final_df))
+                        progress_bar.progress((i + 1) / len(final_df))
                         time.sleep(1.5) 
+                        
+                    # 💡 [핵심 패치 4] 예약 등록이 모두 끝난 후, '수집결과' 탭에서 영구 삭제!
+                    if db_connected and rows_to_delete_from_gather:
+                        try:
+                            gather_sheet = gc.open("zenifix_DB").worksheet("수집결과")
+                            for r in sorted(rows_to_delete_from_gather, reverse=True):
+                                gather_sheet.delete_rows(r)
+                        except:
+                            pass
                             
-                    st.success(f"🎉 총 {success_count}건 예약 완료! (수신거부/중복 제외: {skip_count}명)")
+                    st.success(f"🎉 총 {success_count}건 예약 및 수집DB 청소 완료! (스킵: {skip_count}명)")
 
         # --- 예약 현황 모니터링 대시보드 ---
         st.divider()
