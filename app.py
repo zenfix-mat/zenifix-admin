@@ -530,19 +530,61 @@ with tab2:
             st.warning("🚨 먼저 상단의 '개인 로그인 이메일'과 '16자리 앱 비밀번호'를 입력해 주세요.")
         else:
             if db_connected:
-                try:
-                    gather_result_sheet = gc.open("zenifix_DB").worksheet("수집결과")
-                    result_records = gather_result_sheet.get_all_values() 
-                    
-                    if result_records and len(result_records) > 1:
-                        st.session_state.loaded_buyers_df = pd.DataFrame(result_records[1:], columns=result_records[0])
-                        st.success(f"🎉 총 {len(st.session_state.loaded_buyers_df)}명의 바이어 데이터를 성공적으로 불러왔습니다!")
-                    else:
-                        st.info("📭 아직 로봇이 수집을 완료한 바이어 데이터가 없습니다. [탭 1]에서 먼저 수집 스케줄을 예약해 주세요.")
-                        if 'loaded_buyers_df' in st.session_state:
-                            del st.session_state.loaded_buyers_df
-                except Exception as e:
-                    st.error(f"수집결과 데이터를 불러오는 중 일시적인 오류가 발생했습니다: {e}")
+                with st.spinner("최신 DB를 불러오고 중복 데이터를 필터링하는 중입니다..."):
+                    try:
+                        gather_result_sheet = gc.open("zenifix_DB").worksheet("수집결과")
+                        result_records = gather_result_sheet.get_all_values() 
+                        
+                        if result_records and len(result_records) > 1:
+                            # 1) 원본 데이터 불러오기
+                            df_new = pd.DataFrame(result_records[1:], columns=result_records[0])
+                            original_count = len(df_new)
+                            
+                            # 💡 [핵심 패치 1] 이번에 수집된 DB 안에서의 중복 이메일 우선 제거
+                            df_new = df_new.drop_duplicates(subset=['이메일'], keep='first')
+                            dup_removed = original_count - len(df_new)
+                            
+                            # 💡 [핵심 패치 2] 과거 발송 완료(성공) 리스트 가져오기
+                            sent_emails = []
+                            try:
+                                sent_records = db_sheet.get_all_values()
+                                if len(sent_records) > 1:
+                                    # 발송 성공한 이메일만 추출 (인덱스 1: 이메일, 6: 성공여부)
+                                    sent_emails = [str(row[1]).strip() for row in sent_records[1:] if len(row) > 6 and row[6] == '성공']
+                            except:
+                                pass
+                                
+                            # 💡 [핵심 패치 3] 이미 발송 대기열(Queue)에 있는 이메일도 가져오기
+                            queue_emails = []
+                            try:
+                                queue_records = queue_sheet.get_all_values()
+                                if len(queue_records) > 1:
+                                    queue_emails = [str(row[1]).strip() for row in queue_records[1:] if len(row) > 6 and row[6] == '대기중']
+                            except:
+                                pass
+                                
+                            # 발송완료 + 예약대기 + 수신거부 리스트를 하나의 '금지 목록'으로 합침
+                            already_processed = set(sent_emails + queue_emails + blacklist_emails)
+                            
+                            # 💡 금지 목록에 있는 사람들을 최종 명단에서 싹 삭제!
+                            before_sent_filter = len(df_new)
+                            df_new = df_new[~df_new['이메일'].isin(already_processed)]
+                            sent_removed = before_sent_filter - len(df_new)
+                            
+                            # 깔끔해진 명단을 보관함에 저장
+                            st.session_state.loaded_buyers_df = df_new
+                            
+                            st.success(f"🎉 성공적으로 데이터를 불러왔습니다! (최종 발송 가능: {len(df_new)}명)")
+                            
+                            # 💡 [핵심 패치 4] 중복 삭제 코멘트를 화면에 명확하게 노출
+                            if dup_removed > 0 or sent_removed > 0:
+                                st.info(f"🧹 **자동 스마트 필터링 완료:** \n- DB 내 자체 중복 이메일 **{dup_removed}건** 삭제\n- 이미 발송완료/예약/수신거부된 이메일 **{sent_removed}건** 삭제")
+                        else:
+                            st.info("📭 아직 로봇이 수집을 완료한 바이어 데이터가 없습니다. [탭 1]에서 먼저 수집을 진행해 주세요.")
+                            if 'loaded_buyers_df' in st.session_state:
+                                del st.session_state.loaded_buyers_df
+                    except Exception as e:
+                        st.error(f"수집결과 데이터를 불러오는 중 일시적인 오류가 발생했습니다: {e}")
             else:
                 st.error("구글 DB와 연결되어 있지 않습니다.")
 
