@@ -24,7 +24,7 @@ st.set_page_config(page_title="zenifix Global Admin", page_icon="🚀", layout="
 st.title("🚀 zenifix Global B2B Admin Dashboard")
 
 # ==========================================
-# [DB 연동] 구글 스프레드시트 초기 설정 (타이핑 과부하 완벽 차단 패치)
+# [DB 연동] 구글 스프레드시트 초기 설정 (수신거부 시트 오류 완벽 해결)
 # ==========================================
 if 'db_connected' not in st.session_state:
     try:
@@ -38,11 +38,13 @@ if 'db_connected' not in st.session_state:
         # 1. 수신거부 탭 연동
         try:
             blacklist_sheet = gc.open("zenifix_DB").worksheet("수신거부")
+            st.session_state.blacklist_sheet = blacklist_sheet # 👈 핵심 패치: 시트 본체를 보관함에 저장!
             st.session_state.blacklist_emails = blacklist_sheet.col_values(1) 
         except:
             blacklist_sheet = gc.open("zenifix_DB").add_worksheet(title="수신거부", rows="1000", cols="2")
             blacklist_sheet.update_cell(1, 1, "이메일")
             blacklist_sheet.update_cell(1, 2, "수신거부일시")
+            st.session_state.blacklist_sheet = blacklist_sheet # 👈 탭이 없을 때 생성 후에도 저장!
             st.session_state.blacklist_emails = []
             
         # 2. 템플릿관리 탭 연동
@@ -54,7 +56,7 @@ if 'db_connected' not in st.session_state:
             template_sheet.append_row(["타깃유형", "언어", "제목", "본문"])
             st.session_state.template_records = [["타깃유형", "언어", "제목", "본문"]]
 
-        # 👇 [핵심 패치] 발송예약(Queue) 탭도 보관함에 꼼꼼히 추가합니다!
+        # 3. 발송예약(Queue) 탭 연동
         try:
             queue_sheet = gc.open("zenifix_DB").worksheet("발송예약")
             st.session_state.queue_sheet = queue_sheet
@@ -75,8 +77,9 @@ db_connected = st.session_state.get('db_connected', False)
 if db_connected:
     gc = st.session_state.gc
     db_sheet = st.session_state.db_sheet
+    blacklist_sheet = st.session_state.blacklist_sheet # 👈 정상적으로 시트 불러오기 완료!
     blacklist_emails = st.session_state.blacklist_emails
-    queue_sheet = st.session_state.queue_sheet  # 👈 예약 시트 정상 연동
+    queue_sheet = st.session_state.queue_sheet
 else:
     st.sidebar.error(f"구글 DB 연결 실패: {st.session_state.get('db_error', '알 수 없는 오류')}")
     st.sidebar.warning("발송 이력이 저장되지 않을 수 있습니다.")
@@ -610,13 +613,24 @@ with tab2:
                         success_count = 0
                         skip_count = 0 
                         
+                        # 👇 [핵심 패치 1] 이번 턴에 메일을 발송한 사람들을 기억해둘 '중복 방지 바구니'를 만듭니다.
+                        processed_emails = [] 
+                        
                         for index, row in final_df.iterrows():
                             buyer_email = str(row.get('이메일', '')).strip()
                             buyer_country = str(row.get('국가명', '미확인'))
                             buyer_website = str(row.get('웹사이트', '미확인'))
                             
+                            # 1. DB 수신거부 필터링
                             if buyer_email in blacklist_emails:
                                 status_text.text(f"🚫 수신거부 대상 제외됨: {buyer_email}")
+                                skip_count += 1
+                                progress_bar.progress((index + 1) / len(final_df))
+                                continue
+                                
+                            # 👇 [핵심 패치 2] 엑셀 리스트 내의 '중복 바이어'를 찾아내서 건너뜁니다!
+                            if buyer_email in processed_emails:
+                                status_text.text(f"⚠️ 엑셀 내 중복 바이어 제외됨: {buyer_email}")
                                 skip_count += 1
                                 progress_bar.progress((index + 1) / len(final_df))
                                 continue
@@ -634,6 +648,9 @@ with tab2:
                                 server.send_message(msg)
                                 success_count += 1
                                 current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                                
+                                # 👇 [핵심 패치 3] 방금 발송을 완료한 이메일 주소를 바구니에 담아둡니다!
+                                processed_emails.append(buyer_email)
                                 
                                 if db_connected:
                                     try:
@@ -654,7 +671,7 @@ with tab2:
                                 time.sleep(delay_seconds)
                                 
                         server.quit()
-                        st.success(f"🎉 총 {success_count}건 실시간 발송 완료! (수신거부 스킵: {skip_count}명)")
+                        st.success(f"🎉 총 {success_count}건 실시간 발송 완료! (수신거부 및 중복 스킵: {skip_count}명)")
                         
                     except Exception as e:
                         st.error(f"🚨 이메일 로그인 실패. 오류: {e}")
