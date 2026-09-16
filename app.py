@@ -24,30 +24,30 @@ st.set_page_config(page_title="zenifix Global Admin", page_icon="🚀", layout="
 st.title("🚀 zenifix Global B2B Admin Dashboard")
 
 # ==========================================
-# [DB 연동] 구글 스프레드시트 초기 설정 (수신거부 시트 오류 완벽 해결)
+# [DB 연동] 구글 스프레드시트 초기 설정 (타이핑 과부하 완벽 차단 패치)
 # ==========================================
+# 💡 'db_connected'가 보관함에 없을 때(최초 1회)만 구글 시트에 접속합니다!
 if 'db_connected' not in st.session_state:
     try:
         scopes = ["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive"]
         credentials = Credentials.from_service_account_info(st.secrets["gcp_service_account"], scopes=scopes)
         gc = gspread.authorize(credentials)
         
+        # 시트 접속 정보를 보관함에 저장
         st.session_state.gc = gc
         st.session_state.db_sheet = gc.open("zenifix_DB").sheet1
         
-        # 1. 수신거부 탭 연동
+        # 1. 수신거부 탭 연동 및 읽기 (최초 1회만)
         try:
             blacklist_sheet = gc.open("zenifix_DB").worksheet("수신거부")
-            st.session_state.blacklist_sheet = blacklist_sheet # 👈 핵심 패치: 시트 본체를 보관함에 저장!
             st.session_state.blacklist_emails = blacklist_sheet.col_values(1) 
         except:
             blacklist_sheet = gc.open("zenifix_DB").add_worksheet(title="수신거부", rows="1000", cols="2")
             blacklist_sheet.update_cell(1, 1, "이메일")
             blacklist_sheet.update_cell(1, 2, "수신거부일시")
-            st.session_state.blacklist_sheet = blacklist_sheet # 👈 탭이 없을 때 생성 후에도 저장!
             st.session_state.blacklist_emails = []
             
-        # 2. 템플릿관리 탭 연동
+        # 2. 템플릿관리 탭 연동 및 읽기 (최초 1회만)
         try:
             template_sheet = gc.open("zenifix_DB").worksheet("템플릿관리")
             st.session_state.template_records = template_sheet.get_all_values()
@@ -55,7 +55,7 @@ if 'db_connected' not in st.session_state:
             template_sheet = gc.open("zenifix_DB").add_worksheet(title="템플릿관리", rows="100", cols="4")
             template_sheet.append_row(["타깃유형", "언어", "제목", "본문"])
             st.session_state.template_records = [["타깃유형", "언어", "제목", "본문"]]
-
+            
         # 3. 발송예약(Queue) 탭 연동
         try:
             queue_sheet = gc.open("zenifix_DB").worksheet("발송예약")
@@ -67,24 +67,24 @@ if 'db_connected' not in st.session_state:
                 queue_sheet.update_cell(1, i, h)
             st.session_state.queue_sheet = queue_sheet
 
+        # 성공적으로 불러왔음을 보관함에 도장 찍기
         st.session_state.db_connected = True
+        
     except Exception as e:
         st.session_state.db_connected = False
         st.session_state.db_error = str(e)
 
-# 💡 보관함에서 데이터를 안전하게 꺼내 씁니다.
+# 💡 이후부터는 글자를 타이핑할 때마다 구글 서버를 찌르지 않고 안전한 보관함에서 데이터를 꺼내 씁니다!
 db_connected = st.session_state.get('db_connected', False)
 if db_connected:
     gc = st.session_state.gc
     db_sheet = st.session_state.db_sheet
-    blacklist_sheet = st.session_state.blacklist_sheet # 👈 정상적으로 시트 불러오기 완료!
     blacklist_emails = st.session_state.blacklist_emails
     queue_sheet = st.session_state.queue_sheet
 else:
     st.sidebar.error(f"구글 DB 연결 실패: {st.session_state.get('db_error', '알 수 없는 오류')}")
     st.sidebar.warning("발송 이력이 저장되지 않을 수 있습니다.")
     blacklist_emails = []
-
 
 # ==========================================
 # [영구 템플릿] 구글 시트에서 템플릿 불러오기
