@@ -379,7 +379,11 @@ with tab2:
                 
                 # DB에도 새 템플릿 추가
                 if db_connected:
-                    template_sheet.append_row([new_target, new_lang, new_subject, new_body])
+                    try:
+                        template_sheet = gc.open("zenifix_DB").worksheet("템플릿관리")
+                        template_sheet.append_row([new_target, new_lang, new_subject, new_body])
+                    except:
+                        pass
                 
                 st.success(f"'{new_target}' - '{new_lang}' 추가 완료!")
                 st.rerun()
@@ -410,13 +414,12 @@ with tab2:
         
         if db_connected:
             try:
-                # 💡 [핵심 패치] 저장하기 직전에 '템플릿관리' 시트와의 연결선을 다시 만들어줍니다!
                 template_sheet = gc.open("zenifix_DB").worksheet("템플릿관리")
                 
                 records = template_sheet.get_all_values()
                 found_row_idx = -1
                 for i, row in enumerate(records):
-                    if i > 0 and row[0] == target_type and row[1] == selected_language:
+                    if i > 0 and len(row) >= 2 and row[0] == target_type and row[1] == selected_language:
                         found_row_idx = i + 1
                         break
                 
@@ -426,9 +429,7 @@ with tab2:
                 else:
                     template_sheet.append_row([target_type, selected_language, edited_subject, edited_html_body])
                 
-                # 💡 수정한 최신 데이터를 보관함(Session State)에도 업데이트해 줍니다.
                 st.session_state.template_records = template_sheet.get_all_values()
-                
                 st.toast("🎉 템플릿이 구글 시트에 영구 저장되었습니다!")
             except Exception as e:
                 st.error(f"DB 저장 중 오류: {e}")
@@ -460,7 +461,7 @@ with tab2:
             if not login_email or not app_password:
                 st.warning("로그인 이메일과 앱 비밀번호를 먼저 입력해 주세요.")
             else:
-                with st.spinner("수신함을 스캔하여 'Unsubscribe' 답장을 찾고 있습니다..."):
+                with st.spinner("수신함을 스캔하여 가짜 답장을 걸러내고 '진짜 수신거부'만 판별 중입니다..."):
                     try:
                         mail = imaplib.IMAP4_SSL("imap.gmail.com")
                         mail.login(login_email, app_password)
@@ -478,15 +479,40 @@ with tab2:
                                     from_header = msg.get("From")
                                     email_match = re.search(r'<(.+?)>', str(from_header))
                                     sender = email_match.group(1) if email_match else str(from_header)
+                                    sender = sender.lower().strip()
                                     
-                                    if sender not in blacklist_emails and "mailer-daemon" not in sender.lower():
+                                    # 💡 [방어 로직 복원] 내부망 및 메일러 데몬 필터링
+                                    if "wellsfnd.com" in sender or "denubo@gmail.com" in sender or "mailer-daemon" in sender:
+                                        continue
+                                    
+                                    body_text = ""
+                                    for part in msg.walk():
+                                        if part.get_content_type() in ["text/plain", "text/html"]:
+                                            try:
+                                                body_text += part.get_payload(decode=True).decode('utf-8', errors='ignore').lower()
+                                            except:
+                                                pass
+                                    
+                                    # 💡 [방어 로직 복원] 꼬리말 착각 방지 지능형 스캔
+                                    is_real_unsub = False
+                                    subject = str(msg.get("Subject", "")).lower()
+                                    
+                                    if "unsubscribe" in subject:
+                                        is_real_unsub = True
+                                    else:
+                                        total_unsub_count = body_text.count("unsubscribe")
+                                        footer_count = body_text.count("wish to receive further emails")
+                                        if total_unsub_count > footer_count:
+                                            is_real_unsub = True
+
+                                    if is_real_unsub and sender not in blacklist_emails:
                                         current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
                                         blacklist_sheet.append_row([sender, current_time])
                                         blacklist_emails.append(sender)
                                         new_unsubs += 1
                                         
                         mail.logout()
-                        st.toast(f"✅ 동기화 완료! {new_unsubs}명의 새로운 수신거부 이메일이 DB에 저장되었습니다.")
+                        st.toast(f"✅ 동기화 완료! {new_unsubs}명의 진짜 수신거부 바이어가 DB에 저장되었습니다.")
                     except Exception as e:
                         st.error(f"동기화 중 오류 발생: {e}")
     
@@ -500,11 +526,9 @@ with tab2:
     
     # 1. DB에서 데이터 불러오기 버튼
     if st.button("🔄 로봇이 수집한 최신 바이어 DB 불러오기"):
-        # 💡 [핵심 패치] 이메일과 비밀번호가 입력되지 않았을 경우 얼럿(경고창) 띄우기
         if not login_email or not app_password:
             st.warning("🚨 먼저 상단의 '개인 로그인 이메일'과 '16자리 앱 비밀번호'를 입력해 주세요.")
         else:
-            # 로그인 정보가 모두 입력되었을 때만 아래 리스트 불러오기 실행
             if db_connected:
                 try:
                     gather_result_sheet = gc.open("zenifix_DB").worksheet("수집결과")
@@ -526,25 +550,22 @@ with tab2:
     if 'loaded_buyers_df' in st.session_state and not st.session_state.loaded_buyers_df.empty:
         df_buyers = st.session_state.loaded_buyers_df.copy()
         
-        # '선택'이라는 체크박스 열을 맨 앞에 추가 (기본값 True)
         if '선택' not in df_buyers.columns:
              df_buyers.insert(0, '선택', True)
              
         st.markdown("##### 🧐 발송 전 바이어 휴먼 검수")
         st.caption("발송을 원하지 않는 이메일(예: 고객센터, 아마존 등)은 아래 표에서 **'선택' 체크박스를 해제**해 주세요.")
         
-        # 사용자가 직접 표에서 체크박스를 수정할 수 있는 data_editor 사용
         edited_df = st.data_editor(
             df_buyers,
             hide_index=True,
             use_container_width=True,
-            disabled=["수집일시", "국가명", "업체명", "웹사이트", "이메일", "검색키워드"], # 다른 열은 수정 불가
+            disabled=["수집일시", "국가명", "업체명", "웹사이트", "이메일", "검색키워드"],
             column_config={
                 "선택": st.column_config.CheckboxColumn("발송 선택", help="체크 해제 시 발송 대상에서 제외됩니다.", default=True)
             }
         )
         
-        # 체크된 항목만 최종 발송 대상으로 필터링
         final_df = edited_df[edited_df['선택'] == True].copy()
         st.info(f"선택된 최종 발송 대상: **{len(final_df)}명** / 전체: {len(edited_df)}명")
         
@@ -555,10 +576,8 @@ with tab2:
         with col_date:
             scheduled_date = st.date_input("📅 예약 발송 날짜", min_value=datetime.today().date())
         with col_time:
-            # 💡 [핵심 패치 1] 시간을 지정할 수 있는 입력창을 추가합니다.
             scheduled_time = st.time_input("⏰ 발송 시작 시간")
         
-        # 날짜와 시간을 합쳐서 'YYYY-MM-DD HH:MM' 형태로 만듭니다.
         scheduled_datetime = datetime.combine(scheduled_date, scheduled_time).strftime("%Y-%m-%d %H:%M")
         
         delay_seconds = st.slider("메일 발송 간격 조절 (즉시 발송 시 적용, 단위: 초)", min_value=10, max_value=300, value=180, step=10)
@@ -612,8 +631,6 @@ with tab2:
                         
                         success_count = 0
                         skip_count = 0 
-                        
-                        # 👇 [핵심 패치 1] 이번 턴에 메일을 발송한 사람들을 기억해둘 '중복 방지 바구니'를 만듭니다.
                         processed_emails = [] 
                         
                         for index, row in final_df.iterrows():
@@ -621,14 +638,12 @@ with tab2:
                             buyer_country = str(row.get('국가명', '미확인'))
                             buyer_website = str(row.get('웹사이트', '미확인'))
                             
-                            # 1. DB 수신거부 필터링
                             if buyer_email in blacklist_emails:
                                 status_text.text(f"🚫 수신거부 대상 제외됨: {buyer_email}")
                                 skip_count += 1
                                 progress_bar.progress((index + 1) / len(final_df))
                                 continue
                                 
-                            # 👇 [핵심 패치 2] 엑셀 리스트 내의 '중복 바이어'를 찾아내서 건너뜁니다!
                             if buyer_email in processed_emails:
                                 status_text.text(f"⚠️ 엑셀 내 중복 바이어 제외됨: {buyer_email}")
                                 skip_count += 1
@@ -648,8 +663,6 @@ with tab2:
                                 server.send_message(msg)
                                 success_count += 1
                                 current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                                
-                                # 👇 [핵심 패치 3] 방금 발송을 완료한 이메일 주소를 바구니에 담아둡니다!
                                 processed_emails.append(buyer_email)
                                 
                                 if db_connected:
@@ -658,7 +671,7 @@ with tab2:
                                             current_time, buyer_email, buyer_country, 
                                             buyer_website, target_type, selected_language, "성공"
                                         ])
-                                    except Exception as e:
+                                    except:
                                         pass
                                         
                                 status_text.text(f"✅ 발송 완료 ({buyer_country}): {buyer_email}")
@@ -671,7 +684,7 @@ with tab2:
                                 time.sleep(delay_seconds)
                                 
                         server.quit()
-                        st.success(f"🎉 총 {success_count}건 실시간 발송 완료! (수신거부 및 중복 스킵: {skip_count}명)")
+                        st.success(f"🎉 총 {success_count}건 실시간 발송 완료! (수신거부/중복 스킵: {skip_count}명)")
                         
                     except Exception as e:
                         st.error(f"🚨 이메일 로그인 실패. 오류: {e}")
@@ -724,6 +737,8 @@ with tab2:
                                 edited_subject, final_html, "대기중", target_type, current_time
                             ])
                             success_count += 1
+                            # 💡 [핵심 복원] 방금 예약한 이메일도 중복 리스트에 추가하여 동일 엑셀 파일 내 중복 예약 원천 차단!
+                            existing_queue_emails.append(buyer_email)
                             status_text.text(f"✅ 예약 등록 완료 ({buyer_country}): {buyer_email}")
                         except Exception as e:
                             status_text.text(f"❌ DB 기록 실패: {e}")
@@ -733,42 +748,42 @@ with tab2:
                             
                     st.success(f"🎉 총 {success_count}건 예약 완료! (수신거부/중복 제외: {skip_count}명)")
 
-    # --- 예약 현황 모니터링 대시보드 ---
-    st.divider()
-    st.subheader("📋 현재 발송 예약 대기열 (Queue) 현황")
-    
-    if db_connected:
-        try:
-            queue_records = queue_sheet.get_all_records()
-            if queue_records:
-                df_queue = pd.DataFrame(queue_records)
-                if '상태' in df_queue.columns:
-                    df_pending = df_queue[df_queue['상태'] == '대기중']
-                else:
-                    df_pending = pd.DataFrame()
-                
-                if not df_pending.empty:
-                    total_pending = len(df_pending)
-                    st.info(f"💡 현재 총 **{total_pending}건**의 메일이 발송 대기 중입니다.")
+        # --- 예약 현황 모니터링 대시보드 ---
+        st.divider()
+        st.subheader("📋 현재 발송 예약 대기열 (Queue) 현황")
+        
+        if db_connected:
+            try:
+                queue_records = queue_sheet.get_all_records()
+                if queue_records:
+                    df_queue = pd.DataFrame(queue_records)
+                    if '상태' in df_queue.columns:
+                        df_pending = df_queue[df_queue['상태'] == '대기중']
+                    else:
+                        df_pending = pd.DataFrame()
                     
-                    queue_summary = df_pending.groupby('예약일').size().reset_index(name='발송 예정 건수')
-                    
-                    col_q1, col_q2 = st.columns([1, 2])
-                    with col_q1:
-                        st.markdown("**📅 날짜별 예약 요약**")
-                        st.dataframe(queue_summary, hide_index=True, use_container_width=True)
+                    if not df_pending.empty:
+                        total_pending = len(df_pending)
+                        st.info(f"💡 현재 총 **{total_pending}건**의 메일이 발송 대기 중입니다.")
                         
-                    with col_q2:
-                        st.markdown("**🔍 세부 예약 리스트 (최근 등록순)**")
-                        display_cols = ['예약일', '국가명', '이메일', '타깃유형']
-                        valid_cols = [col for col in display_cols if col in df_pending.columns]
-                        st.dataframe(df_pending[valid_cols].iloc[::-1], hide_index=True, use_container_width=True)
+                        queue_summary = df_pending.groupby('예약일').size().reset_index(name='발송 예정 건수')
+                        
+                        col_q1, col_q2 = st.columns([1, 2])
+                        with col_q1:
+                            st.markdown("**📅 날짜별 예약 요약**")
+                            st.dataframe(queue_summary, hide_index=True, use_container_width=True)
+                            
+                        with col_q2:
+                            st.markdown("**🔍 세부 예약 리스트 (최근 등록순)**")
+                            display_cols = ['예약일', '국가명', '이메일', '타깃유형']
+                            valid_cols = [col for col in display_cols if col in df_pending.columns]
+                            st.dataframe(df_pending[valid_cols].iloc[::-1], hide_index=True, use_container_width=True)
+                    else:
+                        st.success("🎉 현재 대기 중인 발송 예약이 없습니다.")
                 else:
-                    st.success("🎉 현재 대기 중인 발송 예약이 없습니다.")
-            else:
-                st.markdown("아직 등록된 예약 데이터가 없습니다.")
-        except Exception as e:
-            st.warning("대기열 정보를 불러오는 중입니다... (데이터가 비어있거나 새로고침이 필요합니다)")
+                    st.markdown("아직 등록된 예약 데이터가 없습니다.")
+            except Exception as e:
+                st.warning("대기열 정보를 불러오는 중입니다... (데이터가 비어있거나 새로고침이 필요합니다)")
 
 
 # ==========================================
